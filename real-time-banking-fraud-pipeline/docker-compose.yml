@@ -1,0 +1,206 @@
+networks:
+  banking-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  kafka_data:
+  zookeeper_data:
+
+services:
+
+  # ─────────────────────────────────────────────
+  # POSTGRESQL  (OLTP source)
+  # ─────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: banking-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-banking}
+      DEBEZIUM_REPLICATION_USER: ${DEBEZIUM_REPLICATION_USER:?set in .env}
+      DEBEZIUM_REPLICATION_PASSWORD: ${DEBEZIUM_REPLICATION_PASSWORD:?set in .env}
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=5"
+      - "-c"
+      - "max_wal_senders=5"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./01_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./02_seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+      - ./init_replication.sh:/docker-entrypoint-initdb.d/03_replication.sh
+    networks:
+      - banking-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # ZOOKEEPER  (Kafka dependency)
+  # ─────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: banking-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper
+    networks:
+      - banking-net
+
+  # ─────────────────────────────────────────────
+  # KAFKA BROKER
+  # ─────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: banking-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"        # internal
+      - "29092:29092"      # external (host)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168    # 7 days
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - banking-net
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # SCHEMA REGISTRY  (Avro schema management)
+  # ─────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: banking-schema-registry
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - banking-net
+
+  # ─────────────────────────────────────────────
+  # KAFKA CONNECT  (runs Debezium connectors)
+  # ─────────────────────────────────────────────
+  kafka-connect:
+    build:
+      context: .
+      dockerfile: kafka_connect/Dockerfile
+    image: analyticspipeline-kafka-connect:local
+    container_name: banking-kafka-connect
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: banking-connect-cluster
+      CONFIG_STORAGE_TOPIC: banking.connect.configs
+      OFFSET_STORAGE_TOPIC: banking.connect.offsets
+      STATUS_STORAGE_TOPIC: banking.connect.status
+      CONNECT_PLUGIN_PATH: /kafka/connect,/kafka/connect/custom-connectors
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_INTERNAL_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      # Heap for larger workloads
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx1g"
+    volumes:
+      - ./connectors:/kafka/connect/custom-connectors
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - banking-net
+
+  # ─────────────────────────────────────────────
+  # KAFKA UI  (optional - nice monitoring UI)
+  # ─────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: banking-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: banking
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: connect
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+    networks:
+      - banking-net
+
+  # ─────────────────────────────────────────────
+  # STREAMLIT DEMO DASHBOARD
+  # ─────────────────────────────────────────────
+  demo-dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    image: analyticspipeline-demo-dashboard:local
+    container_name: banking-demo-dashboard
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-banking}
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      USE_EXTERNAL_POSTGRES: ${USE_EXTERNAL_POSTGRES:-false}
+      EXTERNAL_POSTGRES_HOST: ${EXTERNAL_POSTGRES_HOST:-host.docker.internal}
+      EXTERNAL_POSTGRES_PORT: ${EXTERNAL_POSTGRES_PORT:-5432}
+      EXTERNAL_POSTGRES_DB: ${EXTERNAL_POSTGRES_DB:-}
+      EXTERNAL_POSTGRES_USER: ${EXTERNAL_POSTGRES_USER:-}
+      EXTERNAL_POSTGRES_PASSWORD: ${EXTERNAL_POSTGRES_PASSWORD:-}
+      EXASOL_DSN: ${CONTAINER_EXASOL_DSN:-host.docker.internal:8563}
+      EXASOL_USER: ${EXASOL_USER:?set in .env}
+      EXASOL_PASSWORD: ${EXASOL_PASSWORD:?set in .env}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - banking-net

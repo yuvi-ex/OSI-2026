@@ -1,0 +1,57 @@
+# The lake: object storage plus an Iceberg REST catalog, and nothing else.
+#
+# Two containers, deliberately. The vendor's own Lakekeeper compose adds Keycloak
+# and Postgres, which is the right stack for a cluster and the wrong one for a
+# booth: every extra container is another thing that can fail to come up on a
+# conference floor.
+#
+# PORTS are offset (19000/19001/18181) so this cannot collide with anything else
+# already running on the machine.
+services:
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: ct-lake-minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports: ["19000:9000", "19001:9001"]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: ct-lake-minio-init
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/warehouse &&
+      echo 'bucket ready'"
+    restart: "no"
+
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.10.1
+    container_name: ct-lake-catalog
+    depends_on:
+      minio: {condition: service_healthy}
+    environment:
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+    ports: ["18181:8181"]
+    restart: unless-stopped
+
+volumes:
+  minio-data:

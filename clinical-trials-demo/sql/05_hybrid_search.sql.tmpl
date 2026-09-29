@@ -1,0 +1,74 @@
+-- ===================================================================
+-- HYBRID RETRIEVAL over trial eligibility, fused with the semantic layer.
+--
+-- Three scores, one statement:
+--   VEC   cosine over 96 LSA dimensions   -- a join and a GROUP BY, nothing more
+--   BM25  classic lexical scoring          -- same analyzer, same vocabulary
+--   RRF   reciprocal rank fusion           -- rank-based, so the two scales never
+--                                             have to be made comparable
+-- Placeholders: {{QUERY}} {{SECTION_FILTER}} {{TRIAL_FILTER}} {{TOPK}}
+-- ===================================================================
+WITH QV AS (
+  -- The only Python at query time: put the question in the documents' space.
+  SELECT DIM, VAL FROM (SELECT CT.EMBED_QUERY('{{QUERY}}') FROM DUAL)
+),
+QT AS (
+  SELECT TERM, QTF FROM (SELECT CT.QUERY_TERMS('{{QUERY}}') FROM DUAL)
+),
+AVGLEN AS (SELECT AVG(LEN) AS L FROM CT.CHUNK_LEN),
+-- Candidate chunks, restricted by the STRUCTURED layer before any scoring.
+-- This is the cheap half of hybrid: a WHERE clause beats a better model.
+CAND AS (
+  SELECT c.NCT_ID, c.CHUNK_ID, c.CRITERION_SECTION
+  FROM CT.ELIG_CHUNKS c
+  JOIN CT.V_LANDSCAPE t ON t.NCT_ID = c.NCT_ID
+  WHERE 1=1 {{SECTION_FILTER}} {{TRIAL_FILTER}}
+),
+VEC AS (
+  SELECT v.NCT_ID, v.CHUNK_ID, SUM(v.VAL * q.VAL) AS SIM
+  FROM CT.ELIG_VECTORS v
+  JOIN QV q  ON q.DIM = v.DIM
+  JOIN CAND k ON k.NCT_ID = v.NCT_ID AND k.CHUNK_ID = v.CHUNK_ID
+  GROUP BY v.NCT_ID, v.CHUNK_ID
+),
+BM AS (
+  -- BM25 with k1=1.2, b=0.75 over the chunk as the document unit.
+  SELECT t.NCT_ID, t.CHUNK_ID,
+         SUM(i.IDF * (t.TF * 2.2) / (t.TF + 1.2 * (0.25 + 0.75 * l.LEN / a.L))) AS BM25
+  FROM CT.CHUNK_TOKENS t
+  JOIN QT qt ON qt.TERM = t.TERM
+  JOIN CT.TERM_IDF i ON i.TERM = t.TERM
+  JOIN CT.CHUNK_LEN l ON l.NCT_ID = t.NCT_ID AND l.CHUNK_ID = t.CHUNK_ID
+  JOIN CAND k ON k.NCT_ID = t.NCT_ID AND k.CHUNK_ID = t.CHUNK_ID
+  CROSS JOIN AVGLEN a
+  GROUP BY t.NCT_ID, t.CHUNK_ID
+),
+RANKED AS (
+  SELECT COALESCE(v.NCT_ID, b.NCT_ID)   AS NCT_ID,
+         COALESCE(v.CHUNK_ID, b.CHUNK_ID) AS CHUNK_ID,
+         v.SIM, b.BM25,
+         ROW_NUMBER() OVER (ORDER BY v.SIM  DESC NULLS LAST) AS VEC_RANK,
+         ROW_NUMBER() OVER (ORDER BY b.BM25 DESC NULLS LAST) AS BM25_RANK
+  FROM VEC v FULL OUTER JOIN BM b
+    ON b.NCT_ID = v.NCT_ID AND b.CHUNK_ID = v.CHUNK_ID
+),
+FUSED AS (
+  SELECT NCT_ID, CHUNK_ID, SIM, BM25, VEC_RANK, BM25_RANK,
+         -- k=60 is the conventional RRF constant; it damps the head so one
+         -- confident-but-wrong ranker cannot dominate the other.
+         (CASE WHEN SIM  IS NULL THEN 0 ELSE 1.0/(60 + VEC_RANK)  END) +
+         (CASE WHEN BM25 IS NULL THEN 0 ELSE 1.0/(60 + BM25_RANK) END) AS RRF
+  FROM RANKED
+)
+SELECT f.NCT_ID, f.CHUNK_ID,
+       c.CRITERION_SECTION,
+       ROUND(f.SIM, 4)  AS VEC_SIM,
+       ROUND(f.BM25, 2) AS BM25,
+       f.VEC_RANK, f.BM25_RANK, ROUND(f.RRF, 6) AS RRF,
+       t.PHASE, t.STATUS_GROUP, t.INDICATION, t.LEAD_SPONSOR,
+       SUBSTR(c.CHUNK_TEXT, 1, 220) AS CRITERION
+FROM FUSED f
+JOIN CT.ELIG_CHUNKS c ON c.NCT_ID = f.NCT_ID AND c.CHUNK_ID = f.CHUNK_ID
+JOIN CT.V_LANDSCAPE t ON t.NCT_ID = f.NCT_ID
+ORDER BY f.RRF DESC
+LIMIT {{TOPK}};

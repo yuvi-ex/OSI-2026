@@ -1,0 +1,12 @@
+# Everything app/run.sh needs, pinned to the versions the demo was verified on.
+#
+# anthropic and mcp are imported lazily inside the agent, so a venv missing them
+# still loads the page — and then fails only when somebody clicks. run.sh checks
+# for them explicitly for that reason.
+streamlit==1.64.0
+anthropic==1.8.0
+mcp==2.2.0
+pyiceberg[s3fs,pyarrow]==0.12.0
+pyarrow==25.0.1
+Markdown==3.10.3        # bin/md2pdf.py, report -> PDF
+pdfplumber==0.11.10     # verifying a generated PDF

@@ -1,0 +1,126 @@
+{
+  "_about": [
+    "Each question carries a GOLD_SQL that defines the correct answer set as a",
+    "verifiable predicate over the snapshot, so the gold set is reproducible and",
+    "auditable rather than asserted. gold_source says where the truth came from:",
+    "  snapshot-sql : derived from the loaded data by the SQL in this file.",
+    "  review       : taken from a published landscape review's trial table.",
+    "NOTE: every question below is snapshot-sql. Review-derived questions require",
+    "reading the reviews and are tracked in eval/REVIEW_QUESTIONS.md -- they are",
+    "NOT yet present, and the harness reports that gap rather than hiding it."
+  ],
+  "questions": [
+    {
+      "id": "pol-01",
+      "category": "polarity",
+      "query": "prior treatment with an anti-PD-1 or anti-PD-L1 antibody",
+      "intent": "Trials that EXCLUDE patients with prior checkpoint-inhibitor exposure.",
+      "section": "EXCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='EXCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(ANTI[- ]?PD[- ]?1|ANTI[- ]?PD[- ]?L1).*' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*PRIOR.*'"
+    },
+    {
+      "id": "pol-02",
+      "category": "polarity",
+      "query": "no prior systemic chemotherapy for metastatic disease",
+      "intent": "Trials REQUIRING chemotherapy-naive patients -- an inclusion criterion phrased as a negation.",
+      "section": "INCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='INCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(NO PRIOR|CHEMOTHERAPY[- ]NAIVE|TREATMENT[- ]NAIVE|WITHOUT PRIOR).*' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(CHEMOTHERAP|SYSTEMIC THERAP).*'"
+    },
+    {
+      "id": "pol-03",
+      "category": "polarity",
+      "query": "active brain metastases",
+      "intent": "Trials that EXCLUDE active CNS metastases (many INCLUDE treated, stable ones -- the opposite).",
+      "section": "EXCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='EXCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(BRAIN METASTAS|CNS METASTAS|LEPTOMENINGEAL).*'"
+    },
+    {
+      "id": "hyb-01",
+      "category": "hybrid",
+      "query": "EGFR mutation positive",
+      "intent": "Biomarker-selected trials. Gold EXCLUDES negated phrasings, because 'EGFR mutation negative' is the wrong answer to 'EGFR mutation positive' and an earlier gold regex credited it.",
+      "section": "INCLUSION",
+      "trial_filter": "AND t.INDICATION = 'NSCLC'",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT c.NCT_ID, c.CHUNK_ID FROM CT.ELIG_CHUNKS c JOIN CT.TRIALS t ON t.NCT_ID=c.NCT_ID WHERE t.INDICATION='NSCLC' AND c.CRITERION_SECTION='INCLUSION' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*EGFR.*' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(MUTAT|POSITIVE|SENSITIS|SENSITIZ).*' AND NOT UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(NEGATIVE|WILD[- ]?TYPE|WITHOUT|ABSENCE OF|NON[- ]?MUTAT).*'"
+    },
+    {
+      "id": "hyb-02",
+      "category": "hybrid",
+      "query": "HER2 positive breast cancer",
+      "intent": "Biomarker in text, indication in the semantic layer.",
+      "section": "INCLUSION",
+      "trial_filter": "AND t.INDICATION = 'BREAST'",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT c.NCT_ID, c.CHUNK_ID FROM CT.ELIG_CHUNKS c JOIN CT.TRIALS t ON t.NCT_ID=c.NCT_ID WHERE t.INDICATION='BREAST' AND c.CRITERION_SECTION='INCLUSION' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(HER2|HER-2|ERBB2).*' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(POSITIVE|OVEREXPRESS|AMPLIFI|3\\+).*'"
+    },
+    {
+      "id": "hyb-03",
+      "category": "hybrid",
+      "query": "adequate renal function creatinine clearance",
+      "intent": "A boilerplate organ-function criterion -- common, so precision matters more than recall.",
+      "section": "INCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='INCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(CREATININE CLEARANCE|\\bCRCL\\b|RENAL FUNCTION|GLOMERULAR FILTRATION|\\bEGFR ML\\b).*'"
+    },
+    {
+      "id": "hyb-04",
+      "category": "hybrid",
+      "query": "ECOG performance status 0 or 1",
+      "intent": "A numeric threshold buried in prose -- the structured layer has no performance-status field at all.",
+      "section": "INCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='INCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(ECOG|PERFORMANCE STATUS|KARNOFSKY).*'"
+    },
+    {
+      "id": "hyb-05",
+      "category": "hybrid",
+      "query": "pregnant or breastfeeding women",
+      "intent": "Near-universal exclusion. Tests whether a very common criterion drowns the ranking.",
+      "section": "EXCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='EXCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(PREGNAN|BREAST[- ]?FEED|LACTAT|NURSING).*'"
+    },
+    {
+      "id": "hyb-06",
+      "category": "hybrid",
+      "query": "prior immunotherapy with checkpoint inhibitor",
+      "intent": "Same concept as pol-01 in different words -- tests vocabulary generalisation, not polarity.",
+      "section": "EXCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='EXCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(CHECKPOINT|IMMUNOTHERAP|PEMBROLIZUMAB|NIVOLUMAB|ATEZOLIZUMAB|DURVALUMAB|IPILIMUMAB).*'"
+    },
+    {
+      "id": "hyb-07",
+      "category": "hybrid",
+      "query": "interstitial lung disease or pneumonitis",
+      "intent": "A specific comorbidity exclusion with a narrow vocabulary -- should be the easy case.",
+      "section": "EXCLUSION",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT NCT_ID, CHUNK_ID FROM CT.ELIG_CHUNKS WHERE CRITERION_SECTION='EXCLUSION' AND UPPER(CHUNK_TEXT) REGEXP_LIKE '.*(INTERSTITIAL LUNG|PNEUMONITIS|\\bILD\\b).*'"
+    },
+    {
+      "id": "hyb-08",
+      "category": "hybrid",
+      "query": "triple negative breast cancer",
+      "intent": "A subtype named as a phrase; the semantic layer only knows 'BREAST'.",
+      "section": "INCLUSION",
+      "trial_filter": "AND t.INDICATION = 'BREAST'",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT c.NCT_ID, c.CHUNK_ID FROM CT.ELIG_CHUNKS c JOIN CT.TRIALS t ON t.NCT_ID=c.NCT_ID WHERE t.INDICATION='BREAST' AND c.CRITERION_SECTION='INCLUSION' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(TRIPLE[- ]NEGATIVE|\\bTNBC\\b).*'"
+    },
+    {
+      "id": "pol-04",
+      "category": "polarity",
+      "query": "EGFR mutation positive",
+      "intent": "ANTONYMY, not stopword deletion. 'negative' survives tokenisation but the vector space does not encode that it inverts the meaning. Both the correct and incorrect criteria are INCLUSION, so the structured section filter offers NO rescue here. This is the known-unfixed failure.",
+      "section": "INCLUSION",
+      "trial_filter": "AND t.INDICATION = 'NSCLC'",
+      "gold_source": "snapshot-sql",
+      "gold_sql": "SELECT c.NCT_ID, c.CHUNK_ID FROM CT.ELIG_CHUNKS c JOIN CT.TRIALS t ON t.NCT_ID=c.NCT_ID WHERE t.INDICATION='NSCLC' AND c.CRITERION_SECTION='INCLUSION' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*EGFR.*' AND UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(POSITIVE|MUTATION[- ]POSITIVE|SENSITIS|SENSITIZ|EXON 19|L858R).*' AND NOT UPPER(c.CHUNK_TEXT) REGEXP_LIKE '.*(NEGATIVE|WILD[- ]?TYPE|WITHOUT|ABSENCE OF).*'"
+    }
+  ]
+}

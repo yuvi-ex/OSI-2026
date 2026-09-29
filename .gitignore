@@ -1,0 +1,46 @@
+# Large binaries go in GitHub Releases, never in git (GitHub warns at 50 MB, rejects at 100 MB)
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.pkl
+*.joblib
+*.parquet
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.dylib
+*.so
+*.dll
+*.bin
+*.onnx
+*.pt
+*.safetensors
+
+# The small demo clip the fraud pipeline README embeds (22 MB) is allowed
+!real-time-banking-fraud-pipeline/docs/assets/realtime-banking-fraud-detection.mp4
+
+# Build output, environments, caches
+.work/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+models/*
+!models/.gitkeep
+eval/results.json
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/
