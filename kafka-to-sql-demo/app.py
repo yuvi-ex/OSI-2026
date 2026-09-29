@@ -11,6 +11,7 @@ Three pages:
 Run story_demo/seed_story_persona.py once before first use.
 """
 import base64
+import html as html_mod
 import json
 import math
 import re
@@ -152,6 +153,14 @@ _ICONS = {
     "stream": '<path d="M3 7h13l-3-3M21 17H8l3 3M3 12h18"/>',
     "cube": '<path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M3 7l9 5 9-5M12 12v10"/>',
     "shield": '<path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
+    "bot": '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/>',
+    "plug": '<path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0zM12 17v5"/>',
+    "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>',
+    "key": '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>',
+    "table": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
+    "chat": '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
+    "swap": '<path d="M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7"/>',
+    "spark": '<path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z"/>',
 }
 MCC_RISK = {m: r for m, _d, r in MCCS}
 
@@ -161,21 +170,30 @@ def _icon(name: str) -> str:
             f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{_ICONS[name]}</svg>')
 
 
-def flow_strip() -> str:
-    """The whole pipeline as four pills -- replaces a paragraph of prose."""
-    nodes = [("db", "PostgreSQL", "row written"), ("stream", "Kafka", "change event"),
+LIVE_FLOW = [("db", "PostgreSQL", "row written"), ("stream", "Kafka", "change event"),
              ("cube", "Exasol", "+30 days of context"), ("shield", "Decision", "scored in SQL")]
-    return '<div class="flow">' + '<span class="farrow">&rarr;</span>'.join(
-        f'<div class="fnode{" hl" if i == 3 else ""}"><div class="ic">{_icon(ic)}</div>'
-        f'<div><div class="t">{t}</div><div class="s">{s}</div></div></div>'
-        for i, (ic, t, s) in enumerate(nodes)) + "</div>"
+AGENT_FLOW = [("bot", "Agent", "no credential"), ("plug", "MCP server", "official Exasol"),
+              ("user", "Persona", "a real DB user"), ("key", "GRANT", "SELECT only"),
+              ("table", "Views", "row-filtered")]
+WATCH_FLOW = [("chat", "Ask", "any question"), ("swap", "Switch persona", "one click"),
+              ("chat", "Ask again", "identical words"), ("table", "Different rows", "same agent")]
+
+
+def flow_strip(nodes, hl: int = -1) -> str:
+    """A pipeline drawn as equal-width cards -- replaces a paragraph of prose."""
+    hl = hl % len(nodes)
+    return (f'<div class="flow{" five" if len(nodes) == 5 else ""}">'
+            + '<span class="farrow">&rarr;</span>'.join(
+                f'<div class="fnode{" hl" if i == hl else ""}"><div class="ic">{_icon(ic)}</div>'
+                f'<div><div class="t">{t}</div><div class="s">{s}</div></div></div>'
+                for i, (ic, t, s) in enumerate(nodes)) + "</div>")
 
 
 def col_head(icon: str, title: str, chips) -> str:
     """Column header as icon + title + chips of what that side can see."""
     c = "".join(f'<span class="chip {k}">{t}</span>' for k, t in chips)
-    return (f'<div class="colhead"><div class="fnode" style="padding:.25rem .7rem .25rem .3rem">'
-            f'<div class="ic">{_icon(icon)}</div><div class="ttl">{title}</div></div>{c}</div>')
+    return (f'<div class="colhead"><div class="ic">{_icon(icon)}</div>'
+            f'<div class="ttl">{title}</div>{c}</div>')
 
 
 def _tone(x: float, mid: float, hi: float) -> str:
@@ -312,7 +330,7 @@ with p1:
     # The headline now lives inside the figure, so the page carries only the
     # kicker above it and the three summary cards below.
     html(f'<div class="section-kicker">{C.PAGE1["kicker"]}</div>')
-    html('<div class="archbox">' + ARCH.problem_diagram() + "</div>")
+    html('<div class="archbox">' + ARCH.problem_workflow() + "</div>")
     cards = "".join(
         f'<div class="tier"><div class="k">{k}</div><div class="d">{d}</div></div>'
         for k, d in C.PAGE1["points"])
@@ -321,17 +339,23 @@ with p1:
 # ------------------------------------------------------------------ page 2
 with p2:
     html(section("Live", "Fire an event, then query it as SQL"))
-    html(flow_strip())
-    b1, b2, b3, _sp, b4 = st.columns([3, 3, 2, 3, 2])
-    with b1:
-        normal = st.button("Ordinary purchase", use_container_width=True, key="fn")
-    with b2:
-        fraud = st.button("Suspicious transaction", use_container_width=True,
+    html(flow_strip(LIVE_FLOW))
+    if P.staging_via_host():
+        html('<div class="colhead" style="min-height:0;margin-top:-.4rem">'
+             '<span class="chip warn">Fallback staging</span><span class="chip">'
+             'Exasol can\'t reach Kafka through this laptop\'s firewall, so the host '
+             'stages the topic into KAFKA_STAGE</span></div>')
+    # Same split as the two result columns below, so the button edges line up.
+    left, right = st.columns([1, 1.25])
+    with left:
+        b1, b2 = st.columns(2)
+        normal = b1.button("Ordinary purchase", use_container_width=True, key="fn")
+        fraud = b2.button("Suspicious transaction", use_container_width=True,
                           type="primary", key="ff")
-    with b3:
-        refresh = st.button("Refresh", use_container_width=True, key="fr")
-    with b4:
-        rst = st.button("Reset data", use_container_width=True, key="rs")
+    with right:
+        b3, _sp, b4 = st.columns([1, 1, 1])
+        refresh = b3.button("Refresh", use_container_width=True, key="fr")
+        rst = b4.button("Reset data", use_container_width=True, key="rs")
 
     holder = st.empty()
 
@@ -393,7 +417,7 @@ with p2:
                 country = st.selectbox("Country", ["US", "MT", "RU", "NG", "GB", "DE"], index=1)
                 city = st.text_input("City", "Valletta")
             new_device = st.checkbox("Unrecognised device", value=True)
-            go = st.form_submit_button("RUN IT THROUGH THE PIPELINE",
+            go = st.form_submit_button("Run it through the pipeline",
                                        use_container_width=True)
         if go:
             ph = st.empty()
@@ -406,47 +430,56 @@ with p2:
 
 
 # ------------------------------------------------------------------ page 3
+LIMIT_CARDS = [("spark", "Small model", "logistic regression, 12 features"),
+               ("user", "Synthetic customer", "seeded, identical every run"),
+               ("swap", "At-least-once", "idempotent by key and offset"),
+               ("cube", "One node", "shows where it runs, not how far it scales")]
+
+
+def hbars(rows, unit="ms") -> str:
+    """Horizontal bars on one scale: [(label, value, tone)]."""
+    top = max(v for _, v, _ in rows) or 1
+    fmt = "{:,.0f}" if unit == "ms" else "{:,.2f}"
+    return '<div class="hbars">' + "".join(
+        f'<div class="hb"><div class="hb-l">{lbl}</div><div class="hb-t">'
+        f'<div class="hb-f {tone}" style="width:{max(2, v / top * 100):.0f}%"></div></div>'
+        f'<div class="hb-v">{fmt.format(v)}{unit}</div></div>'
+        for lbl, v, tone in rows) + "</div>"
+
+
 with p3:
-    html(section(C.PAGE3["kicker"], C.PAGE3["title"], C.PAGE3["copy"]))
-    # The four-phase journey: build it, stream it, score it, ask it. Every
-    # snippet in it is the real statement, trimmed.
-    html('<div class="archbox">' + ARCH.journey_diagram() + "</div>")
+    html(section("How it works", "Build once. Score every payment. Ask in plain English."))
+    html('<div class="archbox">' + ARCH.journey_visual() + "</div>")
+    with st.expander("Show the statements behind each step"):
+        for label, sql in ARCH.JOURNEY_SQL:
+            st.caption(label)
+            st.code(sql, language="sql")
 
-    links = " &nbsp;·&nbsp; ".join(
-        f'<a href="{u}" target="_blank" rel="noopener">{t}</a>' for t, u in ARCH.DOC_LINKS)
-    html(f'<div class="doclinks"><span class="dl-k">Official Exasol documentation</span>'
-         f'{links}</div>')
-    html(f'<div class="note-card"><div class="mini-kicker">The claim</div>'
-         f'<p>{C.ARCH_NOTE}</p></div>')
-    st.write("")
-    l, r = st.columns([1.15, 1])
-    with l:
-        html(f'<div class="sol"><div class="lbl">Worth knowing</div>'
-             f'<div class="big">The default settings make this 19x slower</div>'
-             f'<p>{C.TUNING_NOTE}</p></div>')
-    with r:
-        if ss.last_run is not None and ss.last_run.score is not None:
-            rows = "".join(
-                f'<div class="barrow"><div class="lb">{n}</div>'
-                f'<div class="tr"><div class="fl" style="width:'
-                f'{min(100, hp.ms / max(x.ms for x in ss.last_run.hops) * 100):.0f}%">'
-                f'</div></div><div class="vv">{hp.ms:,.0f} ms</div></div>'
-                for hp, (_, n, _w) in zip(ss.last_run.hops, STAGES))
-            html('<div class="section-kicker">Measured on the last run</div>'
-                 f'<div class="bars">{rows}</div>')
-        else:
-            html('<div class="note-card"><div class="mini-kicker">No run yet</div>'
-                 '<p>Fire an event on page 2 and the measured per-hop timings appear '
-                 'here.</p></div>')
+    html('<div class="claim"><div class="ic">' + _icon("cube") + '</div><div>'
+         '<b>One database.</b> History, features and the model live together &mdash; '
+         '&ldquo;is this fraud?&rdquo; is a query, not a distributed system.</div></div>')
 
-    st.write("")
-    html(section("Stated up front", "What this demo will not claim"))
-    for i in range(0, len(C.LIMITS), 2):
-        cols = st.columns(2)
-        for col, (title, body) in zip(cols, C.LIMITS[i:i + 2]):
-            with col:
-                html(f'<div class="chal"><div class="lbl">Limit</div>'
-                     f'<div class="big">{title}</div><p>{body}</p></div>')
+    # Only once something has run: the measured hops are the proof of the claim
+    # above -- most of the time is transport; the analytics inside Exasol is small.
+    if ss.last_run is not None and ss.last_run.score is not None:
+        r = ss.last_run
+        rows = [(n, hp.ms, "mid" if hp.ms == max(x.ms for x in r.hops) else "")
+                for hp, (_, n, _w) in zip(r.hops, STAGES)]
+        html('<div class="panel"><div class="panel-k">Measured on your last run</div>'
+             f'<div class="panel-t">{r.total_ms / 1000:.1f}s from PostgreSQL to decision'
+             f' &mdash; {r.analytics_ms / 1000:.1f}s of it inside Exasol</div>'
+             + hbars(rows) + "</div>")
+
+    with st.expander("What this demo does not claim"):
+        html('<div class="limits">' + "".join(
+            f'<div class="lim" title="{html_mod.escape(body, quote=True)}">'
+            f'<div class="ic">{_icon(ic)}</div><div><div class="t">{t}</div>'
+            f'<div class="s">{cap}</div></div></div>'
+            for (ic, t, cap), (_, body) in zip(LIMIT_CARDS, C.LIMITS)) + "</div>")
+
+    links = " ".join(f'<a class="chip" href="{u}" target="_blank" rel="noopener">{t}</a>'
+                     for t, u in ARCH.DOC_LINKS)
+    html(f'<div class="doclinks"><span class="panel-k">Exasol docs</span> {links}</div>')
 
 
 # ------------------------------------------------------------------ page 4
@@ -569,20 +602,31 @@ def render_answer(steps, persona=None) -> None:
                 st.code(" ".join(qy.sql.split()), language="sql")
 
 
+BOOKS = {"us": ("US",), "eu": ("EU",), "lead": ("US", "EU")}
+
+
+def persona_card(persona, on: bool) -> str:
+    books = BOOKS.get(persona.key, ())
+    chips = "".join(
+        f'<span class="chip {"add" if b in books else "no"}">{b} book</span>'
+        for b in ("US", "EU"))
+    role, _, scope = persona.title.partition(" · ")
+    return (f'<div class="pcard{" on" if on else ""}"><div class="ic">{_icon("user")}</div>'
+            f'<div><div class="t">{role}</div><div class="u">{persona.db_user}</div>'
+            f'<div class="books">{chips}</div></div></div>')
+
+
 with p4:
-    html(section("Agentic investigation",
-                 "Same agent. Same question. Different identity.",
-                 "The agent has no database credential of its own. It reaches Exasol "
-                 "through the official MCP server, which authenticates as a <b>persona</b> "
-                 "\u2014 a real database user holding SELECT on two row-filtered views and "
-                 "nothing else. What the agent can see is decided by a GRANT, not by a "
-                 "prompt."))
+    html(section("Agentic investigation", "Same agent. Same question. Different identity."))
+    html(flow_strip(AGENT_FLOW, hl=3))
 
     pcols = st.columns(len(AG.M.PERSONAS))
     for col, persona in zip(pcols, AG.M.PERSONAS):
         with col:
             on = ss.get("persona", "us") == persona.key
-            if st.button(persona.title, use_container_width=True,
+            html(persona_card(persona, on))
+            if st.button("Connected" if on else "Connect as this user",
+                         use_container_width=True,
                          type="primary" if on else "secondary",
                          key=f"p_{persona.key}"):
                 ss.persona = persona.key
@@ -590,16 +634,14 @@ with p4:
                 st.rerun()
 
     current = AG.M.BY_KEY[ss.get("persona", "us")]
-    html(f'<div class="idcard"><div class="id-k">Connected as</div>'
-         f'<div class="id-u">{current.db_user}</div>'
-         f'<div class="id-b">{current.blurb}</div></div>')
-
+    html('<div class="qlabel">The question</div>')
     labels = [lbl for lbl, _ in AG.QUESTIONS] + ["Write my own\u2026"]
     qc1, qc2 = st.columns([5, 2], vertical_alignment="bottom")
     with qc1:
-        chosen = st.selectbox("The question", labels, key="agentqpick")
+        chosen = st.selectbox("The question", labels, key="agentqpick",
+                              label_visibility="collapsed")
     with qc2:
-        ask = st.button("ASK AS THIS ANALYST", use_container_width=True,
+        ask = st.button("Ask as this analyst", use_container_width=True,
                         type="primary", key="agentgo")
 
     if chosen == labels[-1]:
@@ -627,7 +669,14 @@ with p4:
             slot.empty()
             render_answer(seen, current)
         except Exception as exc:
-            msg = str(exc)
+            # asyncio (the MCP client) wraps the real failure in an
+            # ExceptionGroup whose own message says nothing; dig it out.
+            root = exc
+            while getattr(root, "exceptions", None):
+                root = root.exceptions[0]
+            import traceback
+            traceback.print_exception(root)
+            msg = f"{type(root).__name__}: {root}" if root is not exc else str(exc)
             if "credit balance" in msg.lower():
                 st.error("The Anthropic API key has no credit. Add credit at "
                          "console.anthropic.com \u2192 Plans & Billing, then try again.")
@@ -639,6 +688,4 @@ with p4:
     elif ss.get("agent_steps"):
         render_answer(ss.agent_steps, current)
     else:
-        html('<div class="howto"><b>What to watch:</b> ask a question, then switch '
-             'persona above and ask the identical one. The answer changes because the '
-             'rows are gone \u2014 not because the agent behaved differently.</div>')
+        html(flow_strip(WATCH_FLOW))

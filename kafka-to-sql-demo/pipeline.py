@@ -241,7 +241,7 @@ def run_event(amount, merchant, mcc, channel, country, city, device,
         emit("kafka", "running")
         t = time.time()
         for _ in range(15):
-            ex.execute(TUNED_IMPORT)
+            stage_import(ex)
             row = ex.execute(
                 f"SELECT KAFKA_PARTITION, KAFKA_OFFSET FROM KAFKA_STAGE.TRANSACTIONS "
                 f"WHERE REFERENCE_ID = '{ref}'"
@@ -326,7 +326,7 @@ def reset_story():
 
         # Let the deletes travel: Debezium -> Kafka -> stage -> RAW.
         for _ in range(3):
-            ex.execute(TUNED_IMPORT)
+            stage_import(ex)
         ex.execute(MERGE_SQL)
         ex.execute(DELETE_SQL)
 
@@ -454,6 +454,117 @@ def _deserializer():
     return _kafka["d"]
 
 
+# ---------------------------------------------------------------------------
+# Staging fallback. The official path is Exasol's own Kafka connector (the
+# IMPORT above), which needs the Exasol VM to reach the broker. On a laptop
+# whose managed firewall drops inbound connections from the VM bridge, it
+# cannot -- so this host reads the same topic on localhost and writes the same
+# rows into KAFKA_STAGE.TRANSACTIONS, partition and offset included. Because
+# the connector resumes from the offsets stored in that table, either path can
+# take over from the other with nothing skipped or duplicated.
+#
+# DEMO_STAGE_MODE: auto (default: connector, fall back on E-KCE-24) |
+#                  connector (never fall back) | host (always use this path)
+# ---------------------------------------------------------------------------
+STAGE_MODE = os.getenv("DEMO_STAGE_MODE", "auto").lower()
+
+
+def _vm_can_reach_broker() -> bool:
+    """
+    The connector only reports E-KCE-24 after a ~60s timeout -- far too long
+    for a first click on stage. The VM's traffic arrives at this host exactly
+    like a connection to the IMPORT's own address from here would, so a
+    2-second probe of that address predicts the outcome.
+    """
+    import socket, struct
+    host, port = re.search(r"BOOTSTRAP_SERVERS\s*=\s*'([^':]+):(\d+)'", BASE_IMPORT).groups()
+    if host in ("localhost", "127.0.0.1") or "." not in host:
+        return True     # a Docker service name or loopback: nothing to predict
+    # Kafka ApiVersions v0 (api_key 18, correlation 1, client "demo"). A blocked
+    # path accepts the TCP connection and then closes it without answering.
+    body = struct.pack(">hhih", 18, 0, 1, 4) + b"demo"
+    try:
+        with socket.create_connection((host, int(port)), timeout=2) as sock:
+            sock.settimeout(2)
+            sock.sendall(struct.pack(">i", len(body)) + body)
+            return len(sock.recv(4)) == 4
+    except OSError:
+        return False
+
+
+_stage = {"host": STAGE_MODE == "host"
+          or (STAGE_MODE == "auto" and not _vm_can_reach_broker())}
+
+STAGE_FIELDS = [
+    "txn_id", "account_id", "card_id", "txn_type", "amount", "currency", "direction",
+    "merchant_name", "merchant_mcc", "merchant_id", "channel", "ip_address", "device_id",
+    "device_fingerprint", "country_code", "city", "latitude", "longitude",
+    "counterparty_account", "counterparty_bank", "status", "decline_reason",
+    "reference_id", "initiated_at", "settled_at", "updated_at", "__op", "__deleted",
+]
+
+
+def staging_via_host() -> bool:
+    """True once the fallback is in use, so the UI can say so."""
+    return _stage["host"]
+
+
+def host_stage(ex, max_wait: float = 2.0) -> int:
+    """Copy messages past the staged offsets from Kafka into KAFKA_STAGE."""
+    from confluent_kafka import Consumer, TopicPartition
+    from confluent_kafka.serialization import SerializationContext, MessageField
+    staged = dict(ex.execute(
+        "SELECT KAFKA_PARTITION, MAX(KAFKA_OFFSET) FROM KAFKA_STAGE.TRANSACTIONS "
+        "GROUP BY KAFKA_PARTITION").fetchall())
+    staged = {int(p): int(o) for p, o in staged.items()}
+    c = Consumer({"bootstrap.servers": KAFKA_BOOTSTRAP, "group.id": "story-demo-stage",
+                  "enable.auto.commit": False, "socket.timeout.ms": 4000})
+    try:
+        md = c.list_topics(KAFKA_TOPIC, timeout=5).topics[KAFKA_TOPIC]
+        assign, want = [], 0
+        for p in md.partitions:
+            lo, hi = c.get_watermark_offsets(TopicPartition(KAFKA_TOPIC, p), timeout=5)
+            start = max(lo, staged.get(p, -1) + 1)
+            if hi > start:
+                assign.append(TopicPartition(KAFKA_TOPIC, p, start))
+                want += hi - start
+        if not assign:
+            return 0
+        c.assign(assign)
+        deser, rows, deadline = _deserializer(), [], time.time() + max_wait
+        while len(rows) < want and time.time() < deadline:
+            m = c.poll(0.2)
+            if m is None or m.error() or m.value() is None:
+                continue
+            v = deser(m.value(), SerializationContext(KAFKA_TOPIC, MessageField.VALUE)) or {}
+            vals = [v.get(f) for f in STAGE_FIELDS]
+            rows.append("(" + ", ".join(
+                "NULL" if x is None else (repr(x) if isinstance(x, (int, float))
+                                          and not isinstance(x, bool)
+                                          else "'" + str(x).replace("'", "''") + "'")
+                for x in vals)
+                + f", FROM_POSIX_TIME({m.timestamp()[1] / 1000:.3f}),"
+                  f" {m.partition()}, {m.offset()})")
+    finally:
+        c.close()
+    for i in range(0, len(rows), 200):
+        ex.execute("INSERT INTO KAFKA_STAGE.TRANSACTIONS VALUES " + ", ".join(rows[i:i + 200]))
+    return len(rows)
+
+
+def stage_import(ex) -> None:
+    """One pass of Kafka -> KAFKA_STAGE, by the connector when it can reach Kafka."""
+    if not _stage["host"]:
+        try:
+            ex.execute(TUNED_IMPORT)
+            return
+        except Exception as exc:
+            if STAGE_MODE == "connector" or "E-KCE-24" not in str(exc):
+                raise
+            _stage["host"] = True   # the VM cannot reach the broker; stop paying the timeout
+    host_stage(ex)
+
+
 def topic_stats():
     """Messages currently on the topic, and how many partitions carry them."""
     from confluent_kafka import TopicPartition
@@ -527,7 +638,7 @@ FROM    ANALYTICS.FRAUD_FEATURES f
 JOIN    RAW.TRANSACTIONS t ON t.TXN_ID = f.TXN_ID
 WHERE   f.ACCOUNT_ID = '{account}'
   AND   f.FRAUD_SCORE IS NOT NULL
-ORDER BY f.FEATURE_COMPUTED_AT DESC
+ORDER BY t.INITIATED_AT DESC
 LIMIT 8"""
 
 

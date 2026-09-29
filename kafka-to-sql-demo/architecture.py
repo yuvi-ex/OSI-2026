@@ -409,6 +409,7 @@ DOC_LINKS = [
 X_BLUE, X_BLUE_INK, X_BLUE_SOFT = "#00B2FF", "#0076AD", "#E2F4FF"
 X_BAD, X_BAD_SOFT = "#C4121F", "#FCEBEC"
 X_TEAL, X_TEAL_SOFT = "#12796A", "#E3F5F1"
+X_AMBER_INK, X_AMBER_SOFT = "#9A6206", "#FEF3DC"
 X_LINE = "#DCE3EE"
 
 
@@ -441,15 +442,15 @@ def _panel(x, y, w, h, head_a, head_b, accent, soft) -> str:
             f'<tspan fill="{accent}"> {head_b}</tspan></text>')
 
 
-def problem_diagram(amount="$750", merchant="LuckyBet Online", country="MT",
-                    device="9F3A", when="16:17:19", history_days=30):
+def problem_diagram(amount="$8,750", merchant="LuckyBet Online", country="MT",
+                    device="DEV-UNKNOWN-ANDROID-X", when="16:17:19", history_days=30):
     """One message, the decision it cannot support, and where the evidence sits."""
     p = ['<svg viewBox="0 0 1240 640" width="100%" role="img" '
-         'aria-label="One Kafka message carries five fields. A fraud decision needs four '
+         'aria-label="One Kafka message carries only this payment. A fraud decision needs four '
          'things that are not in the message: whether the amount is normal for this '
          'customer, whether the country and device have been used before, and what '
-         'happened in the last hour. All of that already exists in the warehouse, but is '
-         'synchronised by overnight batch. The decision is due in seconds; the evidence '
+         'happened in the last hour. All of that lives in the warehouse, and reaches the '
+         'decision only by overnight batch. The decision is due in seconds; its context '
          'arrives tomorrow. So put the event where the history already is." '
          'xmlns="http://www.w3.org/2000/svg">',
          f'<defs><marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
@@ -486,7 +487,7 @@ def problem_diagram(amount="$750", merchant="LuckyBet Online", country="MT",
                  f'</text>')
         ty += 27
     p.append(f'<text x="{P1X+24}" y="{PY+264}" font-family="{HEAD}" font-size="14.5" '
-             f'font-weight="800" fill="{X_BLUE_INK}">Five fields. That\'s all.</text>')
+             f'font-weight="800" fill="{X_BLUE_INK}">Only this payment. No history.</text>')
 
     # ---------------- 2 · what the decision needs ----------------
     p.append(_panel(P2X, PY, P2W, PH, "THE DECISION NEEDS", "CONTEXT", X_BAD, X_BAD_SOFT))
@@ -505,7 +506,7 @@ def problem_diagram(amount="$750", merchant="LuckyBet Online", country="MT",
              f'font-weight="800" fill="{X_BAD}">None of this is in the message.</text>')
 
     # ---------------- 3 · where it already is ----------------
-    p.append(_panel(P3X, PY, P3W, PH, "THE HISTORY", "ALREADY EXISTS", X_TEAL, X_TEAL_SOFT))
+    p.append(_panel(P3X, PY, P3W, PH, "THE HISTORY LIVES", "ELSEWHERE", X_TEAL, X_TEAL_SOFT))
     hy = PY + 100
     for t in (f"Customer history, {history_days} days",
               "Recent transactions",
@@ -517,18 +518,26 @@ def problem_diagram(amount="$750", merchant="LuckyBet Online", country="MT",
     p.append(f'<line x1="{P3X+24}" y1="{PY+240}" x2="{P3X+P3W-24}" y2="{PY+240}" '
              f'stroke="{X_LINE}"/>')
     p.append(f'<text x="{P3X+24}" y="{PY+264}" font-family="{HEAD}" font-size="14.5" '
-             f'font-weight="800" fill="{X_TEAL}">The evidence is already there.</text>')
+             f'font-weight="800" fill="{X_TEAL}">In the warehouse, not in the stream.</text>')
 
     # ---------------- the two gaps ----------------
     p.append(f'<path d="M{P1X+P1W+8},{PY+150} L{P2X-8},{PY+150}" fill="none" '
              f'stroke="#8FA0B4" stroke-width="2.2" marker-end="url(#ap)"/>')
+    # The context the decision needs is in the history -- but it only reaches
+    # the decision by overnight batch. Drawn in the gutter between the two,
+    # pointing from the history back to the decision that is waiting for it.
+    gy = PY + PH / 2 + 6
+    p.append(f'<path d="M{P3X-8},{gy} L{P2X+P2W+10},{gy}" fill="none" stroke="{X_BAD}" '
+             f'stroke-width="2.4" stroke-dasharray="6 4" marker-end="url(#apr)"/>')
+    pw, ph = 80, 34
+    p.append(f'<rect x="{GUT2-pw/2}" y="{gy-ph-10}" width="{pw}" height="{ph}" rx="10" '
+             f'fill="#fff" stroke="{X_BAD}" stroke-opacity="0.45"/>')
     for i, word in enumerate(("overnight", "batch")):
-        p.append(f'<text x="{GUT2}" y="{PY+124+i*14}" text-anchor="middle" '
-                 f'font-family="{SANS}" font-size="11.5" font-weight="700" '
+        p.append(f'<text x="{GUT2}" y="{gy-ph+5+i*13}" text-anchor="middle" '
+                 f'font-family="{SANS}" font-size="11" font-weight="700" '
                  f'fill="{X_BAD}">{word}</text>')
-    p.append(f'<path d="M{P2X+P2W+8},{PY+152} L{P3X-8},{PY+152}" fill="none" '
-             f'stroke="{X_BAD}" stroke-width="2.4" stroke-dasharray="7 5" '
-             f'marker-end="url(#apr)"/>')
+    p.append(f'<text x="{GUT2}" y="{gy+22}" text-anchor="middle" font-family="{SANS}" '
+             f'font-size="12" font-weight="800" fill="{X_BAD}">too late</text>')
 
     # ---------------- the consequence ----------------
     p.append(f'<rect x="40" y="428" width="1160" height="66" rx="12" fill="{X_BAD_SOFT}" '
@@ -537,7 +546,7 @@ def problem_diagram(amount="$750", merchant="LuckyBet Online", country="MT",
     p.append(f'<line x1="118" y1="444" x2="118" y2="478" stroke="{X_BAD}" '
              f'stroke-opacity="0.35" stroke-width="2"/>')
     p.append(f'<text x="140" y="469" font-family="{HEAD}" font-size="21" font-weight="800" '
-             f'fill="{INK}">The decision is due in seconds. The evidence arrives tomorrow.'
+             f'fill="{INK}">The decision is due in seconds. Its context arrives tomorrow.'
              f'</text>')
 
     # ---------------- the fix ----------------
@@ -861,4 +870,382 @@ def journey_diagram():
                  f'marker-end="url(#jr)"/>')
 
     p.append('</svg>')
+    return "".join(p)
+
+
+# ---------------------------------------------------------------------------
+# The same four phases, drawn as a picture rather than a page of code: every
+# card is a mark, a title and a few words. The statements themselves are
+# rendered separately (JOURNEY_SQL), one click away.
+# ---------------------------------------------------------------------------
+FIG = "Figtree, system-ui, sans-serif"
+
+JOURNEY_SQL = [
+    ("1 · Build once", "-- fetch the connector, upload it to BucketFS, register it\n"
+     "curl -fSL -o kafka-connector.jar https://github.com/exasol/kafka-connector-extension/...\n"
+     "curl -X PUT --data-binary @kafka-connector.jar http://.../default/\n"
+     "CREATE JAVA SET SCRIPT KAFKA_EXTENSION.KAFKA_CONSUMER (...) EMITS (...) AS ...;"),
+    ("2 · Live", "IMPORT INTO KAFKA_STAGE.TRANSACTIONS\n"
+     "FROM SCRIPT KAFKA_EXTENSION.KAFKA_CONSUMER WITH TOPIC_NAME = '...' ...;\n\n"
+     "MERGE INTO RAW.TRANSACTIONS t\nUSING KAFKA_STAGE.TRANSACTIONS s ON t.TXN_ID = s.TXN_ID\n"
+     "WHEN MATCHED THEN UPDATE ... WHEN NOT MATCHED THEN INSERT ...;"),
+    ("3 · Score", "SELECT COUNT(*) OVER (PARTITION BY ACCOUNT_ID ORDER BY TS\n"
+     "         RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW) AS TXN_COUNT_1H,\n"
+     "       AMOUNT_USD / AVG_30D                                     AS AMOUNT_VS_AVG_RATIO,\n"
+     "       FRAUD_SCORE_UDF(amount, count_1h, ...)                   AS FRAUD_SCORE,\n"
+     "       CASE WHEN FRAUD_SCORE >= 0.70 THEN 'BLOCK'\n"
+     "            WHEN FRAUD_SCORE >= 0.30 THEN 'REVIEW' ELSE 'APPROVE' END AS DECISION\n"
+     "FROM ...;"),
+    ("4 · Ask", "-- the agent's only route: the official MCP server, signed in as the analyst\n"
+     "EXA_USER = FRAUD_ANALYST_US      -- SELECT on two row-filtered views, nothing else\n"
+     "SELECT MERCHANT_NAME, AMOUNT_USD, FRAUD_SCORE, DECISION\n"
+     "FROM FRAUD_DEMO.V_SCORED_TRANSACTIONS ...;"),
+]
+
+
+def _vcard(x, y, w, h, title, caption, colour, kind, solid=False):
+    fill, tcol, ccol = (colour, "#fff", "#ffffffcc") if solid else ("#fff", INK, MUTED)
+    icon_col = "#fff" if solid else colour
+    cy = y + h / 2
+    return (f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="14" fill="{fill}" '
+            f'stroke="{colour if solid else X_LINE}" stroke-width="1.3"/>'
+            f'<g transform="translate({x+14},{cy-18}) scale(1.385)">'
+            f'{_glyph(0, 0, kind, icon_col)}</g>'
+            f'<text x="{x+66}" y="{cy-3}" font-family="{FIG}" font-size="15.5" '
+            f'font-weight="800" fill="{tcol}">{title}</text>'
+            f'<text x="{x+66}" y="{cy+16}" font-family="{FIG}" font-size="12.5" '
+            f'fill="{ccol}">{caption}</text>')
+
+
+def _vphase(y, h, num, name, when, pal):
+    colour, soft = pal
+    return (f'<rect x="20" y="{y}" width="1200" height="{h}" rx="18" fill="{soft}" '
+            f'fill-opacity="0.55"/>'
+            f'<circle cx="58" cy="{y+h/2}" r="19" fill="{colour}"/>'
+            f'<text x="58" y="{y+h/2+6}" text-anchor="middle" font-family="{FIG}" '
+            f'font-size="17" font-weight="800" fill="#fff">{num}</text>'
+            f'<text x="90" y="{y+h/2-3}" font-family="{FIG}" font-size="19" '
+            f'font-weight="800" fill="{colour}">{name}</text>'
+            f'<text x="90" y="{y+h/2+17}" font-family="{FIG}" font-size="12" '
+            f'font-weight="600" fill="{MUTED}">{when}</text>')
+
+
+def journey_visual():
+    """Build once, stream, score, ask -- one picture, no code."""
+    C, W, CH = [262, 582, 902], 290, 74          # card columns, width, height
+    BH, BH2, GAP = 110, 170, 18
+    ys = [10]
+    for hgt in (BH, BH2, BH):
+        ys.append(ys[-1] + hgt + GAP)
+    total = ys[-1] + BH + 10
+    arrow = "#7C8CA0"
+    p = [f'<svg viewBox="0 0 1240 {total}" width="100%" role="img" '
+         f'xmlns="http://www.w3.org/2000/svg" aria-label="Four phases: build the Kafka '
+         f'reader into Exasol once; stream every payment into Exasol next to its history; '
+         f'score it in SQL; ask about it in plain English through a read-only MCP server.">',
+         f'<defs><marker id="jv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+         f'markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="{arrow}"/>'
+         f'</marker></defs>']
+
+    def row(y, h, cards, pal):
+        cy = y + h / 2
+        for i, (t, cap, kind) in enumerate(cards):
+            p.append(_vcard(C[i], cy - CH / 2, W, CH, t, cap, pal[0], kind))
+            if i:
+                p.append(f'<path d="M{C[i-1]+W+4},{cy} L{C[i]-6},{cy}" stroke="{arrow}" '
+                         f'stroke-width="2.2" marker-end="url(#jv)"/>')
+
+    y = ys[0]
+    p.append(_vphase(y, BH, 1, "Build", "once", PH_BLUE))
+    row(y, BH, [("Kafka reader for Exasol", "one open-source JAR", "file"),
+                ("Into BucketFS", "Exasol's own file store", "db"),
+                ("Registered in Exasol", "one CREATE SCRIPT statement", "nodes")], PH_BLUE)
+
+    y = ys[1]
+    col = PH_TEAL[0]
+    p.append(_vphase(y, BH2, 2, "Stream", "every payment", PH_TEAL))
+    sh, sw = 62, W - 50            # narrower sources leave room for two clean arrows
+    s1, s2 = y + BH2 / 2 - sh - 8, y + BH2 / 2 + 8
+    p.append(_vcard(C[0], s1, sw, sh, "Account history", "30 days of normal", col, "person"))
+    p.append(_vcard(C[0], s2, sw, sh, "Payments arriving",
+                    "from PostgreSQL, via Kafka", col, "wave"))
+    hub_y, hub_h = y + 18, BH2 - 36
+    p.append(_vcard(C[1], hub_y, W, hub_h, "Exasol", "stage \u2192 merge \u2192 features",
+                    col, "db", solid=True))
+    # two arrows converging on the engine's left edge
+    for sy, ty in ((s1 + sh / 2, y + BH2 / 2 - 16), (s2 + sh / 2, y + BH2 / 2 + 16)):
+        p.append(f'<path d="M{C[0]+sw+6},{sy} C{C[0]+sw+40},{sy} {C[1]-40},{ty} {C[1]-8},{ty}" '
+                 f'fill="none" stroke="{arrow}" stroke-width="2.2" marker-end="url(#jv)"/>')
+    p.append(_vcard(C[2], y + BH2 / 2 - CH / 2, W, CH, "Payment + its past",
+                    "one row, ready to score", col, "table"))
+    p.append(f'<path d="M{C[1]+W+4},{y+BH2/2} L{C[2]-6},{y+BH2/2}" stroke="{arrow}" '
+             f'stroke-width="2.2" marker-end="url(#jv)"/>')
+
+    y = ys[2]
+    p.append(_vphase(y, BH, 3, "Score", "every payment, in SQL", PH_AMBER))
+    row(y, BH, [("Compare to normal", "velocity · deviation", "bars"),
+                ("Model in the query", "Python UDF, called from SQL", "spark"),
+                ("Approve · Review · Block", "a CASE anyone can read", "shield")],
+        PH_AMBER)
+
+    y = ys[3]
+    p.append(_vphase(y, BH, 4, "Ask", "whenever someone asks", PH_INDIGO))
+    row(y, BH, [("Analyst asks", "in plain English", "chat"),
+                ("MCP, as that person", "read-only · row-filtered", "person"),
+                ("Answer with proof", "every claim cites its SQL", "shield")], PH_INDIGO)
+
+    for i, hgt in enumerate((BH, BH2, BH)):
+        yy = ys[i] + hgt
+        p.append(f'<path d="M58,{yy-26} L58,{ys[i+1]+22}" stroke="{[PH_BLUE, PH_TEAL, PH_AMBER][i][0]}" '
+                 f'stroke-width="2.4" stroke-dasharray="3 4"/>')
+    p.append("</svg>")
+    return "".join(p)
+
+
+def problem_two_verdicts(amount="$8,750", merchant="LuckyBet Online", country="Malta"):
+    """
+    The same payment decided twice: by the stream alone, in seconds and blind,
+    and by the warehouse, correctly but nine hours later. Every fact on the
+    right is true of the seeded customer (49 payments, avg $29.55, max $91.27,
+    US only, one device); the 02:00 batch is the typical status quo, not this demo.
+    """
+    p = ['<svg viewBox="0 0 1240 560" width="100%" role="img" '
+         'xmlns="http://www.w3.org/2000/svg" aria-label="The same 8,750 dollar payment, '
+         'decided twice. At 16:17 the stream alone approves it, because one message has '
+         'nothing to compare against. At 02:00 the nightly warehouse flags it as fraud: 296 '
+         'times her average spend, her first payment outside the US, on a device she has '
+         'never used. The right answer existed, but arrived after the money had gone. So '
+         'put the event where the history already is.">',
+         f'<defs><marker id="tv" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+         f'markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="{X_BAD}"/>'
+         f'</marker></defs>',
+         f'<text x="620" y="46" text-anchor="middle" font-family="{FIG}" font-size="32" '
+         f'font-weight="800" letter-spacing="-0.6" fill="{INK}">Same payment. Two verdicts.'
+         f'</text>',
+         f'<text x="620" y="76" text-anchor="middle" font-family="{FIG}" font-size="15" '
+         f'fill="{MUTED}">{amount} · {merchant} · {country} · an unrecognised '
+         f'device</text>']
+
+    def card(x, w, when, who, verdict, vcol, soft, lines, mark):
+        y, h = 104, 262
+        out = [f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="16" fill="#fff" '
+               f'stroke="{vcol}" stroke-opacity="0.35" stroke-width="1.5"/>',
+               f'<path d="{_top_rounded(x, y, w, 50, 16)}" fill="{soft}"/>',
+               f'<text x="{x+26}" y="{y+32}" font-family="{FIG}" font-size="13" '
+               f'font-weight="800" letter-spacing="1.4" fill="{vcol}">{when}</text>',
+               f'<text x="{x+w-26}" y="{y+32}" text-anchor="end" font-family="{FIG}" '
+               f'font-size="13" font-weight="700" fill="{MUTED}">{who}</text>',
+               mark(x + 50, y + 104, 22),
+               f'<text x="{x+88}" y="{y+120}" font-family="{FIG}" font-size="44" '
+               f'font-weight="900" letter-spacing="-1" fill="{vcol}">{verdict}</text>']
+        ly = y + 172
+        for ln in lines:
+            out.append(f'<circle cx="{x+34}" cy="{ly-5}" r="3.5" fill="{vcol}"/>'
+                       f'<text x="{x+50}" y="{ly}" font-family="{FIG}" font-size="15.5" '
+                       f'fill="{INK}">{ln}</text>')
+            ly += 30
+        return "".join(out)
+
+    X1, X2, W = 40, 700, 500
+    p.append(card(X1, W, "16:17:19", "the stream alone", "APPROVED", X_AMBER_INK, X_AMBER_SOFT,
+                  ["Sees one message", "Nothing to compare it against",
+                   "No reason to stop it"],
+                  lambda cx, cy, r: _check(cx, cy, r).replace(X_TEAL, X_AMBER_INK)))
+    p.append(card(X2, W, "02:00 NEXT DAY", "the nightly warehouse", "FRAUD", X_BAD, X_BAD_SOFT,
+                  ["296× her average spend ($29.55)",
+                   "Her first payment outside the US",
+                   "A device she has never used"], _bang))
+
+    # nine hours between them
+    gx, gy = (X1 + W + X2) / 2, 235
+    p.append(f'<path d="M{X1+W+10},{gy} L{X2-12},{gy}" stroke="{X_BAD}" stroke-width="2.4" '
+             f'stroke-dasharray="6 5" marker-end="url(#tv)"/>'
+             f'<rect x="{gx-58}" y="{gy-44}" width="116" height="30" rx="15" fill="#fff" '
+             f'stroke="{X_BAD}" stroke-opacity="0.45"/>'
+             f'<text x="{gx}" y="{gy-24}" text-anchor="middle" font-family="{FIG}" '
+             f'font-size="14" font-weight="800" fill="{X_BAD}">9 hours later</text>')
+
+    # the consequence
+    p.append(f'<rect x="40" y="388" width="1160" height="62" rx="14" fill="{X_BAD_SOFT}" '
+             f'stroke="{X_BAD}" stroke-opacity="0.32"/>')
+    p.append(_bang(80, 419, 14))
+    p.append(f'<text x="110" y="427" font-family="{FIG}" font-size="21" font-weight="800" '
+             f'fill="{INK}">The right answer existed. It arrived after the {amount} had gone.'
+             f'</text>')
+
+    # the fix
+    p.append(f'<rect x="40" y="468" width="1160" height="80" rx="14" fill="{X_TEAL_SOFT}" '
+             f'stroke="{X_TEAL}" stroke-opacity="0.32"/>')
+    p.append(_check(84, 508, 20))
+    p.append(f'<text x="124" y="503" font-family="{FIG}" font-size="25" font-weight="800" '
+             f'letter-spacing="-0.4" fill="{X_TEAL}">Put the event where the history already '
+             f'is.</text>')
+    p.append(f'<text x="124" y="530" font-family="{FIG}" font-size="14.5" fill="{MUTED}">'
+             f'One verdict, in seconds, with the full history behind it — live on the next '
+             f'page.</text>')
+    p.append("</svg>")
+    return "".join(p)
+
+
+def problem_workflow(amount="$8,750", merchant="LuckyBet Online", country="MT",
+                     device="DEV-UNKNOWN-ANDROID-X"):
+    """
+    The landing page: one payment walked through today's world as a timeline,
+    then what it costs, then the fix.
+
+    Customer facts are the seeded history (49 payments, avg $29.55, US only, one
+    device). Industry figures, cited on the page:
+      * $33.41B card fraud losses worldwide, 2024 -- Nilson Report (Jan 2026)
+      * $5+ total cost per $1 of fraud, North American FIs -- LexisNexis Risk
+        Solutions, True Cost of Fraud (Sep 2025)
+    """
+    W, GAP, X0 = 272, 24, 40
+    xs = [X0 + i * (W + GAP) for i in range(4)]
+    cx = [x + W / 2 for x in xs]
+    AY, CY, CH = 132, 170, 252                     # axis y, card top, card height
+    blue, amber, bad, teal = X_BLUE_INK, X_AMBER_INK, X_BAD, X_TEAL
+    p = ['<svg viewBox="0 0 1240 706" width="100%" role="img" '
+         'xmlns="http://www.w3.org/2000/svg" aria-label="One payment, today: at 16:17:19 an '
+         '8,750 dollar payment arrives as a single message. The decision is due within '
+         'seconds but needs context the message does not carry. The stream alone approves '
+         'it. At 02:00 the nightly warehouse flags it as fraud, nine hours too late. Card '
+         'fraud cost 33.4 billion dollars worldwide in 2024, and every dollar lost costs a '
+         'bank more than five. The fix: put the event where the history already is.">',
+         f'<defs><marker id="wf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+         f'markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8FA0B4"/>'
+         f'</marker><marker id="wfr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+         f'markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="{bad}"/>'
+         f'</marker></defs>',
+         f'<text x="620" y="42" text-anchor="middle" font-family="{FIG}" font-size="31" '
+         f'font-weight="800" letter-spacing="-0.6" fill="{INK}">The right answer, nine hours '
+         f'too late</text>',
+         f'<text x="620" y="70" text-anchor="middle" font-family="{FIG}" font-size="15" '
+         f'fill="{MUTED}">One card payment, followed through a typical stream-plus-warehouse '
+         f'setup</text>']
+
+    # ---- the timeline ----
+    steps = [("16:17:19", blue), ("16:17:20", bad), ("16:17:21", amber), ("02:00 next day", bad)]
+    for i in range(3):
+        a, b = cx[i] + 20, cx[i + 1] - 22
+        if i < 2:
+            p.append(f'<path d="M{a},{AY} L{b},{AY}" stroke="#8FA0B4" stroke-width="2.4" '
+                     f'marker-end="url(#wf)"/>')
+        else:
+            p.append(f'<path d="M{a},{AY} L{b},{AY}" stroke="{bad}" stroke-width="2.4" '
+                     f'stroke-dasharray="7 5" marker-end="url(#wfr)"/>'
+                     f'<rect x="{(a+b)/2-50}" y="{AY-14}" width="100" height="28" rx="14" '
+                     f'fill="#fff" stroke="{bad}" stroke-opacity="0.5"/>'
+                     f'<text x="{(a+b)/2}" y="{AY+5}" text-anchor="middle" font-family="{FIG}" '
+                     f'font-size="13.5" font-weight="800" fill="{bad}">9 hours</text>')
+    for i, (t, col) in enumerate(steps):
+        p.append(f'<text x="{cx[i]}" y="{AY-30}" text-anchor="middle" font-family="{FIG}" '
+                 f'font-size="13" font-weight="800" letter-spacing="0.8" fill="{col}">{t}</text>'
+                 f'<circle cx="{cx[i]}" cy="{AY}" r="17" fill="{col}"/>'
+                 f'<text x="{cx[i]}" y="{AY+6}" text-anchor="middle" font-family="{FIG}" '
+                 f'font-size="16" font-weight="800" fill="#fff">{i+1}</text>')
+
+    def card(i, col, soft, head, body, foot):
+        x = xs[i]
+        out = [f'<rect x="{x}" y="{CY}" width="{W}" height="{CH}" rx="14" fill="#fff" '
+               f'stroke="{col}" stroke-opacity="0.3" stroke-width="1.4"/>',
+               f'<path d="{_top_rounded(x, CY, W, 46, 14)}" fill="{soft}"/>',
+               f'<text x="{x+20}" y="{CY+29}" font-family="{FIG}" font-size="15.5" '
+               f'font-weight="800" fill="{col}">{head}</text>']
+        out += body(x)
+        out.append(f'<line x1="{x+20}" y1="{CY+CH-44}" x2="{x+W-20}" y2="{CY+CH-44}" '
+                   f'stroke="{X_LINE}"/>'
+                   f'<text x="{x+20}" y="{CY+CH-18}" font-family="{FIG}" font-size="14" '
+                   f'font-weight="800" fill="{col}">{foot}</text>')
+        return "".join(out)
+
+    def message(x):
+        o = [f'<rect x="{x+18}" y="{CY+62}" width="{W-36}" height="112" rx="8" fill="#F3F7FC"/>',
+             f'<rect x="{x+18}" y="{CY+62}" width="4" height="112" rx="2" fill="{X_BLUE}"/>']
+        ty = CY + 86
+        for k, v in (("amount", amount), ("merchant", merchant), ("country", country),
+                     ("device", device)):
+            o.append(f'<text x="{x+34}" y="{ty}" font-family="{MONO}" font-size="11.5" '
+                     f'fill="{MUTED}">{k}: <tspan font-weight="700" fill="{INK}">{v}</tspan>'
+                     f'</text>')
+            ty += 25
+        return o
+
+    def listing(items, mark, col):
+        def f(x):
+            o, ty = [], CY + 84
+            for t in items:
+                o.append(mark(x + 32, ty - 5, 9).replace(X_TEAL, col) if mark else "")
+                o.append(f'<text x="{x+50}" y="{ty}" font-family="{FIG}" font-size="14" '
+                         f'fill="{INK}">{t}</text>')
+                ty += 32
+            return o
+        return f
+
+    def verdict(word, col, mark, lines):
+        def f(x):
+            o = [mark(x + 38, CY + 88, 17).replace(X_TEAL, col),
+                 f'<text x="{x+66}" y="{CY+100}" font-family="{FIG}" font-size="32" '
+                 f'font-weight="900" letter-spacing="-0.8" fill="{col}">{word}</text>']
+            ty = CY + 138
+            for t in lines:
+                o.append(f'<circle cx="{x+30}" cy="{ty-5}" r="3" fill="{col}"/>'
+                         f'<text x="{x+42}" y="{ty}" font-family="{FIG}" font-size="13.5" '
+                         f'fill="{INK}">{t}</text>')
+                ty += 24
+            return o
+        return f
+
+    p.append(card(0, blue, X_BLUE_SOFT, "The payment arrives", message,
+                  "Only this payment. No history."))
+    p.append(card(1, bad, X_BAD_SOFT, "A decision is due now",
+                  listing(["Is this normal for her?", "Has she paid from Malta before?",
+                           "Is this her device?", "What happened this hour?"], _bang, bad),
+                  "None of it is in the message."))
+    p.append(card(2, amber, X_AMBER_SOFT, "The stream decides alone",
+                  verdict("APPROVED", amber, _check,
+                          ["Nothing to compare against", "No reason to stop it"]),
+                  f"{amount} leaves the account."))
+    p.append(card(3, bad, X_BAD_SOFT, "The warehouse catches up",
+                  verdict("FRAUD", bad, _bang,
+                          ["296× her average spend", "First payment outside the US",
+                           "A device she has never used"]),
+                  "Right answer. Too late."))
+
+    # ---- what it costs ----
+    SY = 446
+    p.append(f'<rect x="40" y="{SY}" width="1160" height="132" rx="16" fill="{X_BAD_SOFT}" '
+             f'stroke="{bad}" stroke-opacity="0.25"/>'
+             f'<text x="64" y="{SY+30}" font-family="{FIG}" font-size="12.5" font-weight="800" '
+             f'letter-spacing="1.4" fill="{bad}">WHAT THE GAP COSTS</text>')
+    stats = [(f"{amount} → ~$43,750", "this one payment, at the true cost of fraud",
+              "every $1 lost costs a bank $5+ · LexisNexis, 2025"),
+             ("$33.4 billion", "lost to card fraud worldwide in 2024",
+              "Nilson Report, 2026"),
+             ("9 hours", "between the decision and the evidence",
+              "a typical nightly batch window")]
+    sw = 1160 / 3
+    for i, (big, what, src) in enumerate(stats):
+        x = 40 + i * sw + 24
+        if i:
+            p.append(f'<line x1="{40+i*sw}" y1="{SY+46}" x2="{40+i*sw}" y2="{SY+116}" '
+                     f'stroke="{bad}" stroke-opacity="0.2"/>')
+        p.append(f'<text x="{x}" y="{SY+74}" font-family="{FIG}" font-size="30" '
+                 f'font-weight="900" letter-spacing="-0.6" fill="{INK}">{big}</text>'
+                 f'<text x="{x}" y="{SY+97}" font-family="{FIG}" font-size="14" '
+                 f'fill="{INK}">{what}</text>'
+                 f'<text x="{x}" y="{SY+116}" font-family="{FIG}" font-size="11.5" '
+                 f'fill="{MUTED}">{src}</text>')
+
+    # ---- the fix ----
+    FY = 596
+    p.append(f'<rect x="40" y="{FY}" width="1160" height="96" rx="16" fill="{X_TEAL_SOFT}" '
+             f'stroke="{teal}" stroke-opacity="0.32"/>')
+    p.append(_check(86, FY + 48, 22))
+    p.append(f'<text x="128" y="{FY+42}" font-family="{FIG}" font-size="26" font-weight="800" '
+             f'letter-spacing="-0.4" fill="{teal}">Put the event where the history already is.'
+             f'</text>'
+             f'<text x="128" y="{FY+70}" font-family="{FIG}" font-size="15" fill="{MUTED}">'
+             f'Step 2 answered from 30 days of history, in seconds — so step 3 says BLOCKED. '
+             f'Live on the next page.</text>')
+    p.append("</svg>")
     return "".join(p)

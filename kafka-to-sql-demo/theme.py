@@ -426,33 +426,103 @@ div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"] 
 .pagehead .ph-t {{ font-size:.72rem; font-weight:700; letter-spacing:.14em;
   text-transform:uppercase; color:var(--faint); }}
 
-/* page 2, visual-first: flow strip, "sees vs knows" headers, bar cells */
-.flow {{ display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.5rem 0 .9rem; }}
-.fnode {{ display:flex; align-items:center; gap:.55rem; border-radius:999px;
-  border:1px solid var(--line); background:var(--card); padding:.45rem .95rem .45rem .5rem; }}
-.fnode .ic {{ width:30px; height:30px; border-radius:50%; display:flex; align-items:center;
-  justify-content:center; background:var(--blue-soft); color:var(--blue-ink); }}
+/* ===== visual-first pages: one type family, one grid ===== */
+/* Figtree everywhere; monospace is reserved for real SQL (st.code). */
+.restab th, .restab td.num, .res .nct, .res .sim, .chip, .pill-d, .id-u,
+.stg .sys, .mono-soft {{ font-family:"Figtree",sans-serif !important;
+  font-variant-numeric:tabular-nums; }}
+.restab th {{ font-size:.66rem; letter-spacing:.08em; }}
+.restab td.num {{ font-size:.86rem; }}
+.section-title {{ font-weight:800; letter-spacing:-.02em; }}
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"],
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-tertiary"],
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"],
+.stButton > button {{ font-family:"Figtree",sans-serif !important; font-size:.88rem !important;
+  font-weight:700 !important; letter-spacing:0 !important; padding:.55rem .8rem !important;
+  border-radius:12px !important; min-height:2.6rem !important; }}
+
+.flow {{ display:grid; grid-template-columns:1fr auto 1fr auto 1fr auto 1fr;
+  align-items:center; gap:.55rem; margin:.7rem 0 1rem; }}
+.flow.five {{ grid-template-columns:1fr auto 1fr auto 1fr auto 1fr auto 1fr; }}
+.fnode {{ display:flex; align-items:center; gap:.65rem; border-radius:14px;
+  border:1px solid var(--line); background:var(--card); padding:.6rem .8rem; min-width:0; }}
+.fnode .ic {{ width:34px; height:34px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; background:var(--blue-soft); color:var(--blue-ink); flex:none; }}
+.fnode.hl {{ border-color:rgba(8,18,38,.25); }}
 .fnode.hl .ic {{ background:var(--navy); color:#fff; }}
-.fnode .t {{ font-weight:700; font-size:.9rem; line-height:1.1; }}
-.fnode .s {{ font-size:.7rem; color:var(--faint); line-height:1.1; }}
+.fnode .t {{ font-weight:700; font-size:.95rem; line-height:1.15; }}
+.fnode .s {{ font-size:.76rem; color:var(--faint); line-height:1.2; }}
 .farrow {{ color:var(--faint); font-size:1.1rem; }}
-.colhead {{ display:flex; align-items:center; gap:.6rem; margin:.2rem 0 .5rem; flex-wrap:wrap; }}
-.colhead .ttl {{ font-weight:800; font-size:1.1rem; }}
-.chip {{ font-family:"JetBrains Mono",monospace; font-size:.64rem; font-weight:700;
-  border-radius:999px; padding:.14rem .5rem; background:rgba(8,18,38,.06); color:var(--muted); }}
+@media (max-width:900px) {{ .flow, .flow.five {{ grid-template-columns:1fr; }}
+  .farrow {{ display:none; }} }}
+
+.colhead {{ display:flex; align-items:center; gap:.5rem; margin:.2rem 0 .6rem; flex-wrap:wrap;
+  min-height:2.6rem; }}
+.colhead .ttl {{ font-weight:800; font-size:1.1rem; margin-right:.3rem; }}
+.colhead .ic {{ width:30px; height:30px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; background:var(--blue-soft); color:var(--blue-ink); }}
+.chip {{ font-size:.72rem; font-weight:700; border-radius:999px; padding:.18rem .6rem;
+  background:rgba(8,18,38,.06); color:var(--muted); }}
+.chip.warn {{ background:var(--amber-soft); color:var(--amber-ink); }}
 .chip.add {{ background:var(--teal-soft); color:var(--teal-ink); }}
-.chip.no {{ background:transparent; border:1px dashed var(--line); color:var(--faint);
+.chip.no {{ background:transparent; border:1px dashed rgba(8,18,38,.2); color:var(--faint);
   text-decoration:line-through; }}
+.res {{ padding:.62rem .9rem; }}
 .res .risk {{ display:inline-block; width:8px; height:8px; border-radius:50%;
-  margin-right:.35rem; background:var(--teal); }}
+  margin-right:.45rem; background:var(--teal); vertical-align:middle; }}
 .res .risk.mid {{ background:var(--amber); }}
 .res .risk.hi {{ background:var(--bad); }}
+.res .sim {{ font-size:.8rem; }}
 .bar {{ display:flex; align-items:center; gap:.45rem; justify-content:flex-end; }}
 .bar .trk {{ width:64px; height:7px; border-radius:999px; background:rgba(8,18,38,.08);
   overflow:hidden; flex:none; }}
 .bar .fil {{ height:100%; border-radius:999px; background:var(--teal); }}
 .bar .fil.mid {{ background:var(--amber); }}
 .bar .fil.hi {{ background:var(--bad); }}
+
+/* page 4: persona cards and access chips */
+.pcard {{ border-radius:16px; border:2px solid var(--line); background:var(--card);
+  padding:.85rem 1rem; margin-bottom:.5rem; display:flex; gap:.75rem; align-items:center; }}
+.pcard.on {{ border-color:var(--navy); box-shadow:var(--shadow); }}
+.pcard .ic {{ width:40px; height:40px; border-radius:50%; flex:none; display:flex;
+  align-items:center; justify-content:center; background:var(--blue-soft); color:var(--blue-ink); }}
+.pcard.on .ic {{ background:var(--navy); color:#fff; }}
+.pcard .t {{ font-weight:800; font-size:1rem; line-height:1.15; }}
+.pcard .u {{ font-size:.74rem; color:var(--faint); margin:.1rem 0 .35rem; }}
+.pcard .books {{ display:flex; gap:.35rem; flex-wrap:wrap; }}
+.qlabel {{ font-weight:800; font-size:1rem; margin:.9rem 0 .1rem; }}
+/* page 3: claim line, stat panels, limits */
+.claim {{ display:flex; gap:.8rem; align-items:center; border-radius:16px;
+  background:var(--navy); color:#fff; padding:.8rem 1.1rem; margin:.9rem 0 .9rem;
+  font-size:.95rem; }}
+.claim .ic {{ width:34px; height:34px; border-radius:50%; flex:none; display:flex;
+  align-items:center; justify-content:center; background:rgba(255,255,255,.12); }}
+.claim b {{ color:#fff; }}
+.panel {{ border-radius:16px; border:1px solid var(--line); background:var(--card);
+  padding:.9rem 1.1rem; height:100%; }}
+.panel-k {{ text-transform:uppercase; letter-spacing:.12em; font-size:.66rem;
+  font-weight:700; color:var(--teal-ink); }}
+.panel-t {{ font-weight:800; font-size:1.25rem; margin:.1rem 0 .55rem; }}
+.panel-x {{ font-size:.8rem; color:var(--faint); margin-top:.45rem; }}
+.hbars {{ display:grid; gap:.45rem; }}
+.hb {{ display:grid; grid-template-columns:minmax(0,11rem) 1fr 4.5rem; gap:.6rem;
+  align-items:center; font-size:.85rem; }}
+.hb-l {{ color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.hb-t {{ height:10px; border-radius:999px; background:rgba(8,18,38,.07); overflow:hidden; }}
+.hb-f {{ height:100%; border-radius:999px; background:var(--teal); }}
+.hb-f.mid {{ background:var(--amber); }}
+.hb-f.hi {{ background:var(--bad); }}
+.hb-v {{ text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }}
+.limits {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.7rem; margin:.4rem 0 .9rem; }}
+@media (max-width:1000px) {{ .limits {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
+.lim {{ display:flex; gap:.65rem; align-items:center; border-radius:14px;
+  border:1px solid rgba(196,18,31,.18); background:rgba(252,235,236,.5); padding:.7rem .85rem; }}
+.lim .ic {{ width:32px; height:32px; border-radius:50%; flex:none; display:flex;
+  align-items:center; justify-content:center; background:var(--bad-soft); color:var(--bad-ink); }}
+.lim .t {{ font-weight:800; font-size:.92rem; }}
+.lim .s {{ font-size:.76rem; color:var(--muted); line-height:1.3; }}
+.doclinks {{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }}
+.doclinks a.chip {{ text-decoration:none; border-bottom:0; color:var(--teal-ink); }}
 </style>
 """
 

@@ -18,6 +18,7 @@ agent, asking the same question, gets a different answer.
 from __future__ import annotations
 
 import asyncio
+import os
 import json
 from dataclasses import dataclass, field
 
@@ -28,6 +29,10 @@ import pipeline as P
 import runlog
 
 MODEL = "claude-opus-5"
+# At the default ("high") the first turn of a broad question -- the Fraud Lead
+# sees both books -- can think for 16k tokens and two minutes before its first
+# query. On stage, pace matters more than the last bit of depth.
+EFFORT = os.getenv("DEMO_AGENT_EFFORT", "medium")
 
 # Four of the server's twenty-four tools. A curated surface keeps the agent's
 # behaviour legible on stage -- and the first one is a demo moment in itself,
@@ -191,7 +196,9 @@ QUESTIONS = [
 
 async def _run(persona: M.Persona, question: str, on_step, max_turns: int):
     import time
-    client = anthropic.AsyncAnthropic()
+    # A transient 529/5xx inside the MCP session surfaces as an opaque
+    # "unhandled errors in a TaskGroup"; give the SDK room to ride it out.
+    client = anthropic.AsyncAnthropic(max_retries=6)
     steps: list[Step] = []
 
     def emit(s: Step):
@@ -235,14 +242,32 @@ async def _run(persona: M.Persona, question: str, on_step, max_turns: int):
                     "content": "You have one step left. Call `conclude` now with "
                                "whatever you have established so far.",
                 })
+            t_turn = time.time()
             resp = await client.messages.create(
-                model=MODEL, max_tokens=8000, system=SYSTEM, tools=tools,
-                thinking={"type": "adaptive"}, messages=messages)
+                model=MODEL, max_tokens=16000, system=SYSTEM, tools=tools,
+                thinking={"type": "adaptive"}, output_config={"effort": EFFORT},
+                messages=messages)
+            # Server log only: where an investigation's wall-clock goes.
+            import sys
+            print(f"[agent] {persona.db_user} turn {turn}: {resp.stop_reason} "
+                  f"{time.time() - t_turn:.1f}s out={resp.usage.output_tokens}",
+                  file=sys.stderr, flush=True)
             messages.append({"role": "assistant", "content": resp.content})
 
             if resp.stop_reason != "tool_use":
-                emit(Step(kind="error", text="The agent stopped without concluding."))
-                return steps
+                # Answering in prose, or running out of room, is not a verdict.
+                # Forced tool_choice is not available with thinking on, so ask
+                # again -- the audience must never see "did not conclude".
+                if resp.stop_reason == "max_tokens":
+                    messages.pop()   # truncated; may hold a half-written tool call
+                if turn == max_turns - 1:
+                    break
+                messages.append({
+                    "role": "user",
+                    "content": "Do not answer in prose. Call `conclude` now with what "
+                               "you have established so far.",
+                })
+                continue
 
             results, finished = [], False
             for block in resp.content:

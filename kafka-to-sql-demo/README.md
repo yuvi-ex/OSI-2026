@@ -1,114 +1,167 @@
-# Anatomy of a Card Theft — the stage demo
+# Kafka to SQL — real-time fraud detection with Exasol
 
-A story, not a console. Seven acts, one control, every number read live from the
-running Postgres, Kafka and Exasol.
+A live booth demo. A card payment is written to PostgreSQL, captured by Debezium,
+carried by Kafka, landed in Exasol next to thirty days of history, and scored by a
+model — all in SQL. Then an AI agent investigates it through Exasol's MCP server,
+seeing only what the analyst it runs as is allowed to see.
 
-Standalone: it adds files under `story_demo/` and one isolated customer in the
-database. **`demo_dashboard.py` is untouched and keeps working on port 8501.**
+Every number on screen is read live from the running PostgreSQL, Kafka and Exasol.
+
+---
+
+## The UI
+
+Four tabs, one story: the problem, the live pipeline, how it is built, and asking
+questions of the result.
+
+### 1 · The challenge
+
+![The challenge](screenshots/1-the-challenge.png)
+
+One payment followed through a typical stream-plus-warehouse setup. The stream has
+to decide in seconds with only one message, so it approves; the nightly warehouse
+knows it was fraud — nine hours later. Below it, what the gap costs: this payment at
+the industry's true cost of fraud, and card fraud losses worldwide.
+
+### 2 · Live — Kafka to SQL
+
+![Live — Kafka to SQL](screenshots/2-live-kafka-to-sql.png)
+
+Press **Suspicious transaction** and the same $8,750 payment runs through the real
+pipeline. Each hop is timed, the verdict comes back in about 1.4 seconds, and the
+two columns show the difference: **Kafka sees** one raw event; **Exasol knows** its
+velocity, how it compares with 30 days of normal spend, the merchant risk and the
+model's score. The SQL behind the table is one click away.
+
+### 3 · How it works
+
+![How it works](screenshots/3-how-it-works.png)
+
+The architecture in four phases — **build** the Kafka reader into Exasol once,
+**stream** every payment in next to its history, **score** it in SQL with a Python
+UDF, **ask** about it in plain English. After a run, the measured per-hop timings
+appear underneath: most of the time is transport; the analytics inside Exasol is
+well under a second.
+
+### 4 · Agentic investigation
+
+![Agentic investigation](screenshots/4-agentic-investigation.png)
+
+The agent has no database credential of its own. It reaches Exasol through the
+official MCP server, signed in as a **persona** — a real database user holding
+SELECT on two row-filtered views and nothing else. Ask the same question as the US
+analyst, the EU analyst and the fraud lead: the answer changes because the rows do,
+not because the agent behaved differently. Every answer cites the statement that
+produced it, and the audit trail is read back as that analyst.
 
 ---
 
 ## Run it
 
+This folder runs inside a checkout of
+[real-time-banking-fraud-pipeline](https://github.com/SanjayG-Data/real-time-banking-fraud-pipeline):
+it reuses that repo's `.venv`, `.env` (PostgreSQL, Exasol and `ANTHROPIC_API_KEY`
+for tab 4) and the SQL in its `demo_dashboard.py`. Put this folder at the root of
+that checkout, with the pipeline's containers and Exasol running.
+
 ```bash
 # once, ever
-./.venv/bin/python story_demo/seed_story_persona.py
-./.venv/bin/python -c "import sys;sys.path.insert(0,'story_demo');import pipeline;pipeline.sync_history()"
+./.venv/bin/python kafka-to-sql-demo/seed_story_persona.py
+./.venv/bin/python kafka-to-sql-demo/setup_personas.py
+./.venv/bin/python -c "import sys;sys.path.insert(0,'kafka-to-sql-demo');import pipeline;pipeline.sync_history()"
 
 # every time
-./.venv/bin/streamlit run story_demo/app.py --server.port 8502
+kafka-to-sql-demo/start_demo.sh
 ```
 
-Open **http://localhost:8502**. Press **BEGIN**, then **NEXT** six times.
+Open **http://localhost:8502**.
 
----
+### Settings
 
-## The story
+| Variable | Default | What it does |
+|---|---|---|
+| `DEMO_KAFKA_BOOTSTRAP` | `localhost:29092` (set by `start_demo.sh`) | Where the app itself reads the topic |
+| `DEMO_SCHEMA_REGISTRY` | `http://localhost:8081` (set by `start_demo.sh`) | Avro schemas for the same |
+| `DEMO_STAGE_MODE` | `auto` | `connector`, `host` or `auto` — see below |
+| `DEMO_AGENT_EFFORT` | `medium` | Reasoning effort for the agent; `high` is deeper and slower |
 
-| Act | What happens | Verdict | Score |
-|---|---|---|---|
-| 1 | Elena buys coffee, $5.40 | APPROVED | 0.00000 |
-| 2 | Card stolen — $1 test charge, Malta, new device | APPROVED | 0.00793 |
-| 3 | $180 electronics | APPROVED | 0.00383 |
-| 4 | $2,400 wire transfer | **BLOCKED** | 1.00000 |
-| 5 | $8,750 at an online casino | **BLOCKED** | 1.00000 |
-| 6 | Why it blocked — the score taken apart | — | — |
-| 7 | Where all of that ran | — | — |
+### "Fallback staging"
 
-Acts 1–3 approving is the point, not a weakness: it shows the model is not
-trigger-happy. A one-dollar charge from a new country in a new device is *not*
-fraud, and the model says so. Then it changes its mind, hard.
-
-Verified identical across consecutive runs. Rehearse as often as you like.
-
----
-
-## Three things I had to fix first
-
-These were breaking the pipeline before any UI existed.
-
-**1. The import took 62 seconds.** The connector defaults to
-`POLL_TIMEOUT_MS=30000` and `MIN_RECORDS_PER_RUN=100`, so importing one
-transaction sits in an empty poll waiting for 99 more that never arrive —
-measured at 62s with data, 92s idle. Setting `POLL_TIMEOUT_MS='400'` and
-`MIN_RECORDS_PER_RUN='1'` took the full pipeline from **62.96s to 3.32s**.
-Below 400ms there is no further gain; the remaining ~2.6s is JVM startup inside
-the UDF sandbox. See `TUNED_IMPORT` in `pipeline.py`. **This applies to
-`demo_dashboard.py` too** and is worth porting across.
-
-**2. The scores were nonsense.** On the original seed data a $4.60 coffee scored
-**0.239** and a $1.00 test charge scored **0.963**. Nothing was wrong with the
-model or the SQL — every transaction in the database had been created within the
-same half hour, so `TXN_COUNT_1H` (the model's #2 coefficient) counted the entire
-dataset as velocity, and `ACCOUNT_AVG_AMOUNT_30D` had no history to average.
-The fix is `seed_story_persona.py`: 49 ordinary transactions spread across 30
-real days, giving a $29.55 baseline and a genuinely empty velocity window.
-
-**3. Deletes never propagated past RAW.** `07_refresh_analytics_features.sql`
-only MERGEs — nothing removes rows from `CLEANSED.FACT_TRANSACTIONS` or
-`ANALYTICS.FRAUD_FEATURES` when a transaction is deleted upstream. Deleted rows
-therefore stayed inside the velocity windows forever, so the *same* demo scored
-higher on every rehearsal. `reset_story()` now prunes orphans (`PRUNE_ORPHANS`
-in `pipeline.py`); without it, run three would not look like run one.
-
----
-
-## The receipt (act 6)
-
-Contributions are `coefficient × scaled_value` for the logistic regression in
-BucketFS. They sum to the log-odds; the sigmoid of that sum reproduces the score
-the database returned **to 0.00e+00**. It is arithmetic, not a post-hoc
-explanation.
-
-For act 5 the drivers are, in order: size vs her normal spend (+38.97 — 113×
-her average), merchant category risk (+7.27), amount (+3.68), outside home
-country (+1.60), transactions in the last hour (+1.28).
-
-Worth knowing on stage: **merchant category is the model's single strongest
-coefficient** (+1.4896), ahead of both velocity counts. If someone asks what the
-model keys on most, the honest answer is *where* she shopped, not *how fast*.
+The intended path is Exasol's own
+[Kafka connector](https://github.com/exasol/kafka-connector-extension): Exasol reads
+the topic itself with an `IMPORT … FROM SCRIPT`. That needs the Exasol VM to reach
+the broker. On a laptop whose managed firewall blocks inbound connections from the
+VM bridge, it cannot — so in `auto` mode the app probes the path at start-up and, if
+it is blocked, reads the topic on the host and writes the same rows into
+`KAFKA_STAGE.TRANSACTIONS`, partition and offset included. The Live tab shows a
+**Fallback staging** chip whenever that is happening. Because the connector resumes
+from the offsets stored in that table, either path can take over from the other with
+nothing skipped or duplicated.
 
 ---
 
 ## On stage
 
-- **Reset data** rewinds to the opening state. The 30-day history survives;
-  only the story's own transactions are removed. Do this before you walk on.
-- **Back** re-shows a completed act without re-running it — results are cached,
-  so stepping back costs nothing.
-- Each act takes about 3.3 seconds of visible pipeline time. That gap is real
-  and worth narrating rather than apologising for.
-- Keep Kafka UI on another tab if you want to show the topic; this demo does
-  not need it.
+1. `kafka-to-sql-demo/start_demo.sh`
+2. **Reset data** on the Live tab — rewinds to the opening state; the 30-day history
+   survives.
+3. Run one agent question before the audience arrives (≈40 s), which also confirms
+   the API key.
+
+Suggested flow: tab 1 sets up the $8,750 payment → tab 2 fires that exact payment and
+blocks it live → tab 3 shows where each step ran → tab 4 asks the agent about it as
+three different people.
+
+---
+
+## Three things that had to be fixed first
+
+**1. The import took 62 seconds.** The connector defaults to `POLL_TIMEOUT_MS=30000`
+and `MIN_RECORDS_PER_RUN=100`, so importing one transaction sits in an empty poll
+waiting for 99 more. `POLL_TIMEOUT_MS='400'` and `MIN_RECORDS_PER_RUN='1'` took the
+pipeline from **62.96 s to 3.32 s** (`TUNED_IMPORT` in `pipeline.py`).
+
+**2. The scores were nonsense.** Every seeded transaction had been created within
+the same half hour, so the velocity window counted the whole dataset and the 30-day
+average had nothing to average. `seed_story_persona.py` spreads 49 ordinary payments
+across 30 real days: a $29.55 baseline and a genuinely empty velocity window.
+
+**3. Deletes never propagated past RAW.** The analytics refresh only MERGEs, so
+deleted transactions stayed in the velocity windows forever and every rehearsal
+scored higher than the last. `reset_story()` prunes them (`PRUNE_ORPHANS`).
+
+---
+
+## What this demo does not claim
+
+- **The model is deliberately small** — a logistic regression over twelve features.
+- **The customer is synthetic** — seeded, identical on every run.
+- **Delivery is at-least-once** — idempotent by key and offset, not exactly-once.
+- **One node, small volumes** — it shows where the computation happens, not how far
+  it scales.
+
+Figures on tab 1: card fraud losses of $33.41 billion worldwide in 2024
+([Nilson Report](https://nilsonreport.com/articles/card-fraud-losses-worldwide-2024/));
+every $1 of fraud costs North American financial institutions more than $5
+([LexisNexis Risk Solutions, 2025](https://risk.lexisnexis.com/about-us/press-room/press-release/20250910-fraud-multiplier)).
+The "~$43,750" is $8,750 at that multiplier; the nine-hour batch window is
+illustrative.
+
+---
 
 ## Files
 
 ```
-story_demo/seed_story_persona.py   the isolated customer + 30 days of history
-story_demo/pipeline.py             connections, tuned import, run_event, reset, attribution
-story_demo/story.py                the script — acts, narration, amounts
-story_demo/theme.py                stage CSS (Plus Jakarta Sans, projector type scale)
-story_demo/app.py                  the Streamlit app
+app.py                 the Streamlit app — four tabs
+pipeline.py            connections, tuned import, host staging fallback, run_event, reset
+agent.py               the investigation loop (Claude + Exasol MCP)
+mcp_client.py          personas and the MCP server settings (read-only)
+architecture.py        the drawn diagrams (tabs 1 and 3)
+theme.py               styling
+chapters.py, story.py  page copy and the scripted payments
+seed_story_persona.py  the isolated customer + 30 days of history
+setup_personas.py      the three database users and their row-filtered views
+sql/                   persona and audit DDL
+start_demo.sh          one-command start
+screenshots/           the images above
 ```
-
-Nothing outside `story_demo/` was modified.
