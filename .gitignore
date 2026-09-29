@@ -19,9 +19,6 @@
 *.pt
 *.safetensors
 
-# The small demo clip the fraud pipeline README embeds (22 MB) is allowed
-!real-time-banking-fraud-pipeline/docs/assets/realtime-banking-fraud-detection.mp4
-
 # Build output, environments, caches
 .work/
 .venv/
