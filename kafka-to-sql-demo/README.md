@@ -247,6 +247,9 @@ published. Point it elsewhere only if your Exasol runs on another machine.
 ./.venv/bin/python kafka-to-sql-demo/sync_history.py        # import every topic into Exasol, build features
 ```
 
+Want to look at the data first? [`sample_data/`](sample_data/) has the demo customer,
+her 30-day history and the three scored payments as CSV.
+
 > **Credentials.** `setup_personas.py` creates three database users with fixed demo
 > passwords (in `mcp_client.py`). They hold SELECT on two row-filtered views only, but
 > change them before running this anywhere shared.
@@ -459,6 +462,7 @@ chapters.py, story.py  page copy and the scripted payments
 seed_story_persona.py  the demo customer + 30 days of history
 setup_personas.py      the three database users and their row-filtered views
 sync_history.py        import every topic, merge into RAW, rebuild features
+sample_data/           the demo customer, her history and three scored payments (CSV)
 sql/                   persona and audit DDL
 requirements.txt       Python packages on top of the parent repo's
 start_demo.sh          one-command start

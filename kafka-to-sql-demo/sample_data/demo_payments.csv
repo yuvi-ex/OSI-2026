@@ -1,0 +1,4 @@
+initiated_at,merchant_name,merchant_mcc,amount,channel,country_code,city,device_id,status,alert_status
+2026-09-30 14:50:10.668171+00:00,Corner Coffee,5812,5.4000,POS,US,Austin,DEV-ELENA-IPHONE-13,SETTLED,
+2026-09-30 14:50:12.455830+00:00,Summit Wire Transfer,4829,475.0000,MOBILE,US,Austin,DEV-ELENA-IPHONE-13,FLAGGED,OPEN
+2026-09-30 14:50:14.136662+00:00,LuckyBet Online,7995,8750.0000,ONLINE,MT,Valletta,DEV-UNKNOWN-ANDROID-X,SETTLED,

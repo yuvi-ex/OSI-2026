@@ -1,0 +1,2 @@
+customer_id,full_name,email,phone,date_of_birth,country_code,kyc_status,risk_band,created_at,updated_at
+e1e0a000-0000-4000-8000-000000000001,Elena Fischer,elena.fischer@example.com,+1-512-555-0142,1991-04-17,US,VERIFIED,LOW,2026-09-22 07:28:45.501339+00:00,2026-09-22 07:28:45.501339+00:00

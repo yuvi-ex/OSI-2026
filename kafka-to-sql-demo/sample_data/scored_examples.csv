@@ -1,0 +1,4 @@
+MERCHANT_NAME,AMOUNT_USD,TXN_COUNT_1H,TXN_COUNT_24H,AMOUNT_SUM_1H,AMOUNT_SUM_24H,AMOUNT_VS_AVG_RATIO,IS_CROSS_BORDER,IS_NEW_COUNTRY_30D,IS_NEW_DEVICE_30D,IS_NIGHT_TXN,IS_WEEKEND_TXN,MCC_BASE_RISK,FRAUD_SCORE,DECISION,TOP_DRIVERS
+Corner Coffee,5.4,0,0,0,0,0.1836,False,False,False,False,False,0.05,0,APPROVE,(none: nothing raised the risk)
+Summit Wire Transfer,475,1,1,5.4,5.4,16.4979,False,False,False,False,False,0.6,0.48519,REVIEW,Merchant category risk 50%; Size vs her normal spend 48%; Amount 1%
+LuckyBet Online,8750,2,2,480.4,480.4,219.0416,True,True,True,False,False,0.75,1,BLOCK,Size vs her normal spend 82%; Merchant category risk 8%; Amount 4%

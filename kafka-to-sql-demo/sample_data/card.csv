@@ -1,0 +1,2 @@
+card_id,account_id,card_type,masked_pan,last_four,expiry_date,network,status,issued_at,updated_at
+e1e0a000-0000-4000-8000-000000000003,e1e0a000-0000-4000-8000-000000000002,DEBIT,4111-****-****-9001,9001,2029-08-31,VISA,ACTIVE,2025-08-18 12:58:45.507903+00:00,2026-09-22 07:28:45.501339+00:00
