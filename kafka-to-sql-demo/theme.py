@@ -523,6 +523,141 @@ div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"],
 .lim .s {{ font-size:.76rem; color:var(--muted); line-height:1.3; }}
 .doclinks {{ display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; }}
 .doclinks a.chip {{ text-decoration:none; border-bottom:0; color:var(--teal-ink); }}
+
+/* human review */
+.an {{ font-size:.68rem; font-weight:700; margin-top:.2rem; white-space:nowrap; }}
+.an-ok {{ color:var(--teal-ink); }}
+.an-bad {{ color:var(--bad-ink); }}
+.an-wait {{ color:var(--amber-ink); }}
+.rv {{ display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto; gap:.8rem;
+  align-items:center; border-radius:14px; border:1px solid var(--line); background:var(--card);
+  padding:.6rem .9rem; margin-bottom:.4rem; }}
+.rv-m {{ font-size:.92rem; }}
+.rv-s .bar {{ justify-content:flex-start; font-size:.8rem; color:var(--muted); }}
+.rv-p {{ font-size:.72rem; font-weight:800; border-radius:999px; padding:.2rem .65rem; white-space:nowrap; }}
+.rv-wait {{ border-color:rgba(245,158,11,.4); }}
+.rv-wait .rv-p {{ background:var(--amber-soft); color:var(--amber-ink); }}
+.rv-ok .rv-p {{ background:var(--teal-soft); color:var(--teal-ink); }}
+.rv-bad .rv-p {{ background:var(--bad-soft); color:var(--bad-ink); }}
+
+/* ===== compact result + one font for Streamlit widgets ===== */
+.rail {{ gap:.5rem; margin:.6rem 0 .1rem; }}
+.stg {{ border-radius:14px; box-shadow:none; padding:.5rem .8rem; }}
+.stg .sys {{ font-family:"Figtree",sans-serif !important; font-size:.6rem; letter-spacing:.1em; }}
+.stg .what {{ font-size:.8rem; font-weight:600; margin-top:0; color:var(--muted); }}
+.stg .ms {{ font-size:1.15rem; margin-top:.1rem; }}
+.runlabel {{ font-family:"Figtree",sans-serif !important; font-size:.8rem; font-weight:600;
+  letter-spacing:0; color:var(--muted); margin:.7rem 0 -.3rem; }}
+.verdict {{ border-radius:16px; box-shadow:none; padding:.75rem 1.1rem; margin:.6rem 0 .5rem;
+  gap:1.6rem; }}
+.verdict .word {{ font-size:clamp(1.7rem,2.8vw,2.4rem); font-weight:800; letter-spacing:-.03em; }}
+.verdict .m {{ font-size:.6rem; }}
+.verdict .m b {{ font-size:1.2rem; }}
+.kpi-grid {{ gap:.5rem; margin:.1rem 0 .3rem; }}
+.kpi {{ border-radius:12px; box-shadow:none; padding:.55rem .8rem; }}
+.kpi .k {{ font-size:.58rem; }}
+.kpi .v {{ font-size:1.15rem; margin-top:.05rem; }}
+.kpi .x {{ font-size:.72rem; margin-top:0; line-height:1.3; }}
+div[data-testid="stWidgetLabel"] p, div[data-testid="stWidgetLabel"] label,
+.stTextInput input, .stNumberInput input, div[data-baseweb="select"] div,
+.stCheckbox label p, div[data-testid="stPopoverBody"] p,
+div[data-testid="stExpander"] summary p, div[data-testid="stPopover"] button p {{
+  font-family:"Figtree",sans-serif !important; }}
+div[data-testid="stWidgetLabel"] p {{ font-size:.8rem !important; font-weight:600 !important;
+  color:var(--muted) !important; }}
+
+@media (min-width:1000px) {{ .kpi-grid {{ grid-template-columns:repeat(6,minmax(0,1fr)); }} }}
+div[data-testid="stPopover"] button {{ background:rgba(215,243,239,.7) !important;
+  color:var(--teal) !important; border:1px solid rgba(31,160,139,.25) !important; }}
+button[data-testid="stBaseButton-primaryFormSubmit"] {{
+  background:linear-gradient(135deg,#081226 0%,#10203F 100%) !important; color:#fff !important;
+  border:1px solid rgba(31,160,139,.35) !important; }}
+
+/* ================= colour system v2 =================
+   White surfaces, navy ink, and colour only where it means something:
+   green approve, amber review, red block. Exasol blue stays the brand accent. */
+:root {{ --ok:#0F8A5F; --ok-soft:#E6F4EE; --warn:#C26A00; --warn-soft:#FDF1E1;
+  --no:#C8102E; --no-soft:#FBE9EC; --edge:#DFE5EE; --ink2:#0B1B34; }}
+
+/* buttons: white with a navy hover; the one primary action stays navy */
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"],
+div[data-testid="stPopover"] button, .stButton > button[kind="secondary"] {{
+  background:#fff !important; color:var(--ink2) !important;
+  border:1px solid var(--edge) !important; box-shadow:0 1px 2px rgba(11,27,52,.06) !important; }}
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-secondary"]:hover,
+div[data-testid="stPopover"] button:hover {{ border-color:var(--ink2) !important; }}
+div[data-testid="stHorizontalBlock"] button[data-testid="stBaseButton-primary"],
+.stButton > button[kind="primary"] {{ background:var(--ink2) !important; color:#fff !important;
+  border:1px solid var(--ink2) !important; }}
+/* each preset carries the colour of the outcome it produces */
+.st-key-fn button p::before, .st-key-fv button p::before, .st-key-ff button p::before {{
+  content:""; display:inline-block; width:9px; height:9px; border-radius:50%;
+  margin-right:.5rem; vertical-align:middle; }}
+.st-key-fn button p::before {{ background:var(--ok); }}
+.st-key-fv button p::before {{ background:#F59E0B; }}
+.st-key-ff button p::before {{ background:#FF4D5E; }}
+
+/* the verdict: a solid decision block, then the numbers */
+.verdict.vbar {{ background:#fff !important; border:1px solid var(--edge) !important;
+  border-left:0 !important; padding:0 !important; overflow:hidden; gap:1.8rem !important; }}
+.verdict.vbar .vw {{ display:flex; align-items:center; gap:.7rem; align-self:stretch;
+  padding:.85rem 1.4rem; color:#fff; }}
+.verdict.vbar .vi {{ width:34px; height:34px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; background:rgba(255,255,255,.18); color:#fff; }}
+.verdict.vbar .word {{ color:#fff !important; }}
+.vbar.v-approve .vw {{ background:var(--ok); }}
+.vbar.v-review .vw {{ background:#D97706; }}
+.vbar.v-block .vw {{ background:var(--no); }}
+.verdict.vbar .vp {{ margin-left:auto; margin-right:1.2rem; font-size:.72rem; color:var(--faint); }}
+
+/* metric cards: white; a risky one gets a red rule, not a pink wash */
+.kpi {{ background:#fff !important; border:1px solid var(--edge) !important; }}
+.kpi.hot {{ background:#fff !important; border-left:3px solid var(--no) !important; }}
+.kpi.hot .v {{ color:var(--no) !important; }}
+
+/* pipeline rail: neutral, a green dot on each finished hop */
+.stg, .stg.done {{ background:#fff !important; border-color:var(--edge) !important; }}
+.stg.done .sys::before {{ content:""; display:inline-block; width:7px; height:7px;
+  border-radius:50%; background:var(--ok); margin-right:.4rem; vertical-align:middle; }}
+.stg.run {{ border-color:#F59E0B !important; background:#FFFBF3 !important; }}
+
+/* insight and next best action */
+.card {{ background:#fff; border:1px solid var(--edge); border-radius:16px;
+  padding:.9rem 1.1rem; margin:.2rem 0 .6rem; height:100%; }}
+.card-k {{ text-transform:uppercase; letter-spacing:.12em; font-size:.62rem; font-weight:800;
+  color:#0072C6; }}
+.card-k.bad {{ color:var(--no); }}
+.card-t {{ font-weight:800; font-size:1.05rem; margin:.15rem 0 .6rem; color:var(--ink2); }}
+.card-x {{ font-size:.72rem; color:var(--faint); margin-top:.5rem; }}
+.dr {{ display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 2.6rem; gap:.6rem;
+  align-items:center; font-size:.86rem; margin:.28rem 0; }}
+.dr-l {{ color:var(--ink2); }}
+.dr-t {{ height:8px; border-radius:999px; background:#EEF2F7; overflow:hidden; }}
+.dr-f {{ height:100%; border-radius:999px; background:linear-gradient(90deg,#FF7A85,var(--no)); }}
+.dr-v {{ text-align:right; font-weight:800; color:var(--ink2); font-variant-numeric:tabular-nums; }}
+.na {{ display:grid; grid-template-columns:1.4rem 2.1rem 1fr; gap:.6rem; align-items:center;
+  padding:.45rem 0; border-top:1px solid #EEF2F7; }}
+.na:first-of-type {{ border-top:0; }}
+.na-n {{ font-weight:800; color:var(--no); font-size:.95rem; }}
+.na-i {{ width:32px; height:32px; border-radius:50%; background:var(--no-soft); color:var(--no);
+  display:flex; align-items:center; justify-content:center; }}
+.na-t {{ font-weight:800; font-size:.9rem; color:var(--ink2); }}
+.na-s {{ font-size:.78rem; color:var(--muted); line-height:1.35; }}
+
+/* decision pills in the results table, same three colours */
+.d-approve {{ background:var(--ok-soft) !important; color:var(--ok) !important; }}
+.d-review {{ background:var(--warn-soft) !important; color:var(--warn) !important; }}
+.d-block {{ background:var(--no) !important; color:#fff !important; }}
+.restab tr.hot td {{ background:#FDF3F4 !important; }}
+.restab tr.warn td {{ background:#FFF8EE !important; }}
+
+.card.rev .dr-f {{ background:linear-gradient(90deg,#FBBF24,#D97706); }}
+.card-k.warn {{ color:var(--warn); }}
+.mflow {{ display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; margin:-.2rem 0 .6rem; }}
+.mf {{ font-size:.7rem; font-weight:700; color:var(--muted); background:#F1F4F9;
+  border-radius:999px; padding:.12rem .55rem; }}
+.mfa {{ color:var(--faint); font-size:.8rem; }}
+.card .rv {{ grid-template-columns:1fr auto; margin:0; }}
 </style>
 """
 

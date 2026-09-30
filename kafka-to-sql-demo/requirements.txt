@@ -1,0 +1,7 @@
+# On top of the parent repo's requirements.txt (numpy, pandas, scikit-learn,
+# pyexasol, psycopg2-binary, streamlit).
+streamlit>=1.64          # st.popover, keyed element classes
+confluent-kafka[avro]>=2.4   # reads the topic, Avro via Schema Registry
+anthropic>=1.8           # tab 4: the investigation agent
+mcp>=1.20                # tab 4: MCP client
+exasol-mcp-server>=2.2   # tab 4: the MCP server the agent reaches Exasol through

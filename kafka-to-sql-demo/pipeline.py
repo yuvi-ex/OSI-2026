@@ -297,6 +297,8 @@ def run_event(amount, merchant, mcc, channel, country, city, device,
 # forever, so TXN_COUNT_1H creeps up on every rehearsal and the same demo scores
 # higher each time it is run. These two statements are the fix.
 PRUNE_ORPHANS = [
+    """DELETE FROM RAW.FRAUD_ALERTS a
+       WHERE NOT EXISTS (SELECT 1 FROM RAW.TRANSACTIONS r WHERE r.TXN_ID = a.TXN_ID)""",
     """DELETE FROM CLEANSED.FACT_TRANSACTIONS c
        WHERE NOT EXISTS (SELECT 1 FROM RAW.TRANSACTIONS r WHERE r.TXN_ID = c.TXN_ID)""",
     """DELETE FROM ANALYTICS.FRAUD_FEATURES a
@@ -318,17 +320,36 @@ def reset_story():
         # version scoped this to ACCOUNT_ID, so test transactions fired against
         # other customers during development were orphaned -- they survived every
         # reset and turned up later as "fraud" in another analyst's book.
+        # Review alerts first: fraud_alerts.txn_id references transactions.
+        cur.execute(
+            """DELETE FROM fraud_alerts WHERE txn_id IN
+               (SELECT txn_id FROM transactions WHERE reference_id LIKE %s)""",
+            (STORY_REF_PREFIX + "%",))
         cur.execute(
             "DELETE FROM transactions WHERE reference_id LIKE %s",
             (STORY_REF_PREFIX + "%",))
         removed = cur.rowcount
         pg.commit()
 
-        # Let the deletes travel: Debezium -> Kafka -> stage -> RAW.
-        for _ in range(3):
+        # Let the deletes travel: Debezium -> Kafka -> stage -> RAW. Wait for
+        # them rather than making a fixed number of passes: a connector pass
+        # takes ~2.6s (JVM start), which happened to give Debezium time to
+        # publish, but a host-staging pass takes milliseconds and finished
+        # before the deletes arrived -- leaving yesterday's rehearsal inside
+        # every velocity window.
+        for _ in range(40):
             stage_import(ex)
-        ex.execute(MERGE_SQL)
-        ex.execute(DELETE_SQL)
+            stage_import(ex, ALERTS_IMPORT, **ALERTS_HOST)
+            ex.execute(MERGE_SQL)
+            ex.execute(DELETE_SQL)
+            for stmt in ALERT_MERGES:
+                ex.execute(stmt)
+            left = ex.execute(
+                "SELECT COUNT(*) FROM RAW.TRANSACTIONS WHERE REFERENCE_ID LIKE "
+                + _lit(STORY_REF_PREFIX + "%")).fetchone()[0]
+            if not left:
+                break
+            time.sleep(0.5)
 
         pruned = 0
         for stmt in PRUNE_ORPHANS:
@@ -456,9 +477,8 @@ def _deserializer():
 
 # ---------------------------------------------------------------------------
 # Staging fallback. The official path is Exasol's own Kafka connector (the
-# IMPORT above), which needs the Exasol VM to reach the broker. On a laptop
-# whose managed firewall drops inbound connections from the VM bridge, it
-# cannot -- so this host reads the same topic on localhost and writes the same
+# IMPORT above), which needs Exasol to reach the broker. Where it cannot --
+# a host firewall between a local Exasol VM and Docker, for example -- this app reads the same topic on localhost and writes the same
 # rows into KAFKA_STAGE.TRANSACTIONS, partition and offset included. Because
 # the connector resumes from the offsets stored in that table, either path can
 # take over from the other with nothing skipped or duplicated.
@@ -509,24 +529,26 @@ def staging_via_host() -> bool:
     return _stage["host"]
 
 
-def host_stage(ex, max_wait: float = 2.0) -> int:
-    """Copy messages past the staged offsets from Kafka into KAFKA_STAGE."""
+def host_stage(ex, max_wait: float = 2.0, topic: str | None = None,
+               table: str = "KAFKA_STAGE.TRANSACTIONS", fields=None) -> int:
+    """Copy messages past the staged offsets from Kafka into a KAFKA_STAGE table."""
     from confluent_kafka import Consumer, TopicPartition
     from confluent_kafka.serialization import SerializationContext, MessageField
+    topic, fields = topic or KAFKA_TOPIC, fields or STAGE_FIELDS
     staged = dict(ex.execute(
-        "SELECT KAFKA_PARTITION, MAX(KAFKA_OFFSET) FROM KAFKA_STAGE.TRANSACTIONS "
+        f"SELECT KAFKA_PARTITION, MAX(KAFKA_OFFSET) FROM {table} "
         "GROUP BY KAFKA_PARTITION").fetchall())
     staged = {int(p): int(o) for p, o in staged.items()}
     c = Consumer({"bootstrap.servers": KAFKA_BOOTSTRAP, "group.id": "story-demo-stage",
                   "enable.auto.commit": False, "socket.timeout.ms": 4000})
     try:
-        md = c.list_topics(KAFKA_TOPIC, timeout=5).topics[KAFKA_TOPIC]
+        md = c.list_topics(topic, timeout=5).topics[topic]
         assign, want = [], 0
         for p in md.partitions:
-            lo, hi = c.get_watermark_offsets(TopicPartition(KAFKA_TOPIC, p), timeout=5)
+            lo, hi = c.get_watermark_offsets(TopicPartition(topic, p), timeout=5)
             start = max(lo, staged.get(p, -1) + 1)
             if hi > start:
-                assign.append(TopicPartition(KAFKA_TOPIC, p, start))
+                assign.append(TopicPartition(topic, p, start))
                 want += hi - start
         if not assign:
             return 0
@@ -536,8 +558,8 @@ def host_stage(ex, max_wait: float = 2.0) -> int:
             m = c.poll(0.2)
             if m is None or m.error() or m.value() is None:
                 continue
-            v = deser(m.value(), SerializationContext(KAFKA_TOPIC, MessageField.VALUE)) or {}
-            vals = [v.get(f) for f in STAGE_FIELDS]
+            v = deser(m.value(), SerializationContext(topic, MessageField.VALUE)) or {}
+            vals = [v.get(f) for f in fields]
             rows.append("(" + ", ".join(
                 "NULL" if x is None else (repr(x) if isinstance(x, (int, float))
                                           and not isinstance(x, bool)
@@ -548,21 +570,203 @@ def host_stage(ex, max_wait: float = 2.0) -> int:
     finally:
         c.close()
     for i in range(0, len(rows), 200):
-        ex.execute("INSERT INTO KAFKA_STAGE.TRANSACTIONS VALUES " + ", ".join(rows[i:i + 200]))
+        ex.execute(f"INSERT INTO {table} VALUES " + ", ".join(rows[i:i + 200]))
     return len(rows)
 
 
-def stage_import(ex) -> None:
+def stage_import(ex, stmt: str | None = None, **host) -> None:
     """One pass of Kafka -> KAFKA_STAGE, by the connector when it can reach Kafka."""
     if not _stage["host"]:
         try:
-            ex.execute(TUNED_IMPORT)
+            ex.execute(stmt or TUNED_IMPORT)
             return
         except Exception as exc:
             if STAGE_MODE == "connector" or "E-KCE-24" not in str(exc):
                 raise
             _stage["host"] = True   # the VM cannot reach the broker; stop paying the timeout
-    host_stage(ex)
+    host_stage(ex, **host)
+
+
+# ---------------------------------------------------------------------------
+# Human review. A payment scored into the REVIEW band is held, and an alert is
+# opened where analysts actually work -- the operational database. Their
+# decision is an ordinary UPDATE in PostgreSQL, so it travels the same road as
+# the payment did: Debezium -> Kafka -> Exasol, where the analytics refresh
+# turns CONFIRMED_FRAUD / FALSE_POSITIVE into FRAUD_LABEL -- the column the
+# model is retrained on (train_pipeline.py --source exasol).
+# ---------------------------------------------------------------------------
+ALERTS_IMPORT = next(s for s in entity_import_statements() if "KAFKA_STAGE.FRAUD_ALERTS" in s)
+ALERTS_TOPIC = re.search(r"TOPIC_NAME\s*=\s*'([^']+)'", ALERTS_IMPORT).group(1)
+ALERT_FIELDS = ["alert_id", "txn_id", "alert_type", "fraud_score", "risk_score", "status",
+                "investigator", "notes", "created_at", "resolved_at", "__op", "__deleted"]
+ALERT_MERGES = [s for s in entity_merge_statements() if "RAW.FRAUD_ALERTS" in s]
+ALERTS_HOST = dict(topic=ALERTS_TOPIC, table="KAFKA_STAGE.FRAUD_ALERTS", fields=ALERT_FIELDS)
+
+# The "needs review" preset: a wire to a new payee, from her own phone, at
+# home. Nothing is wrong except the size and the category -- exactly the case
+# a model should not decide alone. When velocity is already high (many clicks
+# without a reset), even a small wire scores BLOCK, so lower-risk categories
+# are tried as well.
+REVIEW_PRESET = dict(merchant="Summit Wire Transfer", mcc="4829", channel="MOBILE",
+                     country="US", city="Austin")
+REVIEW_PROFILES = [  # (merchant, mcc, base risk) -- the wire is preferred
+    ("Summit Wire Transfer", "4829", 0.60),
+    ("PixelStore Digital", "5816", 0.30),
+    ("Metro Electronics", "5045", 0.20),
+]
+REVIEW_BAND = (0.32, 0.68)       # inside REVIEW (0.30-0.70) with a little margin
+
+
+def borderline_payment(target: float = 0.5):
+    """
+    The payment the model is least sure about *right now*, or None.
+
+    The score is steep in amount and depends on velocity (a $450 wire is REVIEW
+    as the first payment of the hour and BLOCK as the third), so a fixed preset
+    only lands in REVIEW if the presenter clicks in one particular order. This
+    reproduces the features the refresh will compute for the new payment --
+    same windows as 07_refresh_analytics_features.sql -- asks the real UDF for
+    every candidate amount and category in one statement, and picks the one
+    closest to `target`. The score shown afterwards is still the one the
+    pipeline computes; this only chooses the payment. Returns None when nothing
+    lands in the review band -- the caller asks for a reset rather than firing
+    a payment that would be BLOCKED.
+    """
+    now = datetime.now()
+    ts = f"TIMESTAMP '{now:%Y-%m-%d %H:%M:%S}'"
+    ex = exa_connect()
+    try:
+        c1h, s1h, c24h, s24h, avg30 = ex.execute(f"""
+            SELECT COUNT(CASE WHEN INITIATED_AT >= {ts} - INTERVAL '1' HOUR THEN 1 END),
+                   COALESCE(SUM(CASE WHEN INITIATED_AT >= {ts} - INTERVAL '1' HOUR
+                                     THEN AMOUNT_USD END), 0),
+                   COUNT(CASE WHEN INITIATED_AT >= {ts} - INTERVAL '24' HOUR THEN 1 END),
+                   COALESCE(SUM(CASE WHEN INITIATED_AT >= {ts} - INTERVAL '24' HOUR
+                                     THEN AMOUNT_USD END), 0),
+                   AVG(CASE WHEN INITIATED_AT >= {ts} - INTERVAL '30' DAY
+                            THEN AMOUNT_USD END)
+            FROM CLEANSED.FACT_TRANSACTIONS
+            WHERE ACCOUNT_ID = '{ACCOUNT_ID}' AND INITIATED_AT < {ts}""").fetchone()
+        avg30 = float(avg30 or 30.0)
+        night = "TRUE" if now.hour >= 22 or now.hour < 6 else "FALSE"
+        weekend = "TRUE" if now.weekday() >= 5 else "FALSE"
+        amounts = (list(range(10, 100, 5)) + list(range(100, 1000, 25))
+                   + list(range(1000, 9001, 250)))
+        # One statement over one row set: a single UDF invocation for every
+        # candidate. (A UNION ALL of per-candidate SELECTs started one Python VM
+        # per branch and took ~30s.)
+        values = ", ".join(f"({x}, {i})" for i, (_, _, _) in enumerate(REVIEW_PROFILES)
+                           for x in amounts)
+        risk = " ".join(f"WHEN {i} THEN {r}" for i, (_, _, r) in enumerate(REVIEW_PROFILES))
+        scored = [(float(a), int(i), float(sc)) for a, i, sc in ex.execute(f"""
+            SELECT A, P, ANALYTICS.FRAUD_SCORE_UDF(A, {c1h}, {c24h}, {float(s1h)} + 0,
+                   {float(s24h)} + 0, A / {avg30}, FALSE, FALSE, FALSE, {night}, {weekend},
+                   CASE P {risk} END)
+            FROM (VALUES {values}) AS C(A, P)""").fetchall()]
+        lo, hi = REVIEW_BAND
+        for i, (merchant, mcc, _) in enumerate(REVIEW_PROFILES):   # prefer the wire
+            inside = [(a, sc) for a, p, sc in scored if p == i and lo <= sc <= hi]
+            if inside:
+                a, sc = min(inside, key=lambda r: abs(r[1] - target))
+                return {**REVIEW_PRESET, "merchant": merchant, "mcc": mcc,
+                        "amount": a, "expected": sc}
+        return None
+    finally:
+        ex.close()
+
+
+def open_review(txn_id: str, score: float) -> str:
+    """Hold the payment and open an alert for an analyst. Returns the alert id."""
+    pg = pg_connect()
+    cur = pg.cursor()
+    try:
+        cur.execute("UPDATE transactions SET status = 'FLAGGED' WHERE txn_id = %s", (txn_id,))
+        cur.execute("""
+            INSERT INTO fraud_alerts (txn_id, alert_type, fraud_score, status, notes)
+            VALUES (%s, 'MODEL_REVIEW', %s, 'OPEN',
+                    'Score in the review band: held for an analyst')
+            RETURNING alert_id""", (txn_id, round(float(score), 4)))
+        alert_id = str(cur.fetchone()[0])
+        pg.commit()
+        return alert_id
+    finally:
+        cur.close(); pg.close()
+
+
+def resolve_review(txn_id: str, confirm_fraud: bool, investigator: str = "Demo analyst") -> dict:
+    """
+    Record the analyst's decision in PostgreSQL, then follow it into Exasol.
+
+    Returns what Exasol ended up holding -- the alert status, the payment
+    status and the FRAUD_LABEL -- and how long the round trip took.
+    """
+    alert_status = "CONFIRMED_FRAUD" if confirm_fraud else "FALSE_POSITIVE"
+    pg = pg_connect()
+    cur = pg.cursor()
+    try:
+        cur.execute("""
+            UPDATE fraud_alerts
+               SET status = %s, investigator = %s, resolved_at = now(),
+                   notes = %s
+             WHERE txn_id = %s AND status = 'OPEN'""",
+                    (alert_status, investigator,
+                     "Analyst confirmed fraud" if confirm_fraud else "Analyst cleared the payment",
+                     txn_id))
+        if confirm_fraud:
+            cur.execute("""UPDATE transactions SET status = 'DECLINED',
+                           decline_reason = 'ANALYST_CONFIRMED_FRAUD' WHERE txn_id = %s""",
+                        (txn_id,))
+        else:
+            cur.execute("""UPDATE transactions SET status = 'SETTLED', decline_reason = NULL
+                           WHERE txn_id = %s""", (txn_id,))
+        pg.commit()
+    finally:
+        cur.close(); pg.close()
+
+    ex = exa_connect()
+    try:
+        t = time.time()
+        for _ in range(15):
+            stage_import(ex)
+            stage_import(ex, ALERTS_IMPORT, **ALERTS_HOST)
+            if ex.execute(f"""SELECT 1 FROM KAFKA_STAGE.FRAUD_ALERTS
+                              WHERE TXN_ID = '{txn_id}' AND STATUS = '{alert_status}'""").fetchall():
+                break
+            time.sleep(0.25)
+        ex.execute(MERGE_SQL); ex.execute(DELETE_SQL)
+        for stmt in ALERT_MERGES:
+            ex.execute(stmt)
+        for stmt in refresh_statements():
+            ex.execute(stmt)
+        row = ex.execute(f"""
+            SELECT a.STATUS AS ALERT_STATUS, r.STATUS AS TXN_STATUS, f.FRAUD_LABEL
+            FROM RAW.TRANSACTIONS r
+            LEFT JOIN RAW.FRAUD_ALERTS a ON a.TXN_ID = r.TXN_ID
+            LEFT JOIN ANALYTICS.FRAUD_FEATURES f ON f.TXN_ID = r.TXN_ID
+            WHERE r.TXN_ID = '{txn_id}'""").fetchone()
+        return {"alert_status": row[0] if row else None,
+                "txn_status": row[1] if row else None,
+                "label": row[2] if row else None,
+                "ms": (time.time() - t) * 1000}
+    finally:
+        ex.close()
+
+
+def review_queue(limit: int = 6):
+    """Story alerts, newest first, from the operational database where they are worked."""
+    pg = pg_connect()
+    cur = pg.cursor()
+    try:
+        cur.execute("""
+            SELECT a.txn_id::text, t.merchant_name, t.amount, a.fraud_score, a.status,
+                   a.investigator, t.status
+            FROM fraud_alerts a JOIN transactions t ON t.txn_id = a.txn_id
+            WHERE t.reference_id LIKE %s
+            ORDER BY a.created_at DESC LIMIT %s""", (STORY_REF_PREFIX + "%", limit))
+        return [dict(zip(("txn_id", "merchant", "amount", "score", "status", "investigator",
+                          "txn_status"), r)) for r in cur.fetchall()]
+    finally:
+        cur.close(); pg.close()
 
 
 def topic_stats():
@@ -633,7 +837,9 @@ SCORED_SQL = """SELECT  t.MERCHANT_NAME,
         f.FRAUD_SCORE,
         CASE WHEN f.FRAUD_SCORE >= 0.70 THEN 'BLOCK'
              WHEN f.FRAUD_SCORE >= 0.30 THEN 'REVIEW'
-             ELSE 'APPROVE' END AS DECISION
+             ELSE 'APPROVE' END AS DECISION,
+        CASE WHEN f.FRAUD_LABEL = TRUE  THEN 'CONFIRMED FRAUD'
+             WHEN f.FRAUD_LABEL = FALSE THEN 'CLEARED' END AS ANALYST
 FROM    ANALYTICS.FRAUD_FEATURES f
 JOIN    RAW.TRANSACTIONS t ON t.TXN_ID = f.TXN_ID
 WHERE   f.ACCOUNT_ID = '{account}'

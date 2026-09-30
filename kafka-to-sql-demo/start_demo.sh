@@ -6,8 +6,8 @@
 # reuses that repo's .venv, .env and demo_dashboard.py).
 #
 # The demo reads Kafka and Schema Registry on localhost (always reachable from
-# this machine). If the Exasol VM cannot reach the broker -- a managed laptop
-# firewall blocking the VM bridge, for example -- pipeline.py detects it in two
+# this machine). If Exasol cannot reach the broker -- a host firewall between a
+# local Exasol VM and Docker, for example -- pipeline.py detects it in two
 # seconds and stages the topic from the host instead; the Live tab then says so.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"

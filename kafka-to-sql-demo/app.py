@@ -95,6 +95,7 @@ ss.setdefault("fired", 0)
 ss.setdefault("health", None)
 ss.setdefault("persona", "us")
 ss.setdefault("agent_steps", None)
+ss.setdefault("last_review", None)
 
 
 # ------------------------------------------------------------------ fragments
@@ -111,13 +112,105 @@ def rail(states: dict) -> str:
 
 
 def verdict(r) -> str:
+    """
+    The decision as a solid banner, then the three numbers that matter on
+    stage. Where the event sat on the topic is provenance, so it moves to the
+    fine print rather than taking a headline slot.
+    """
     cls = {"APPROVE": "v-approve", "REVIEW": "v-review", "BLOCK": "v-block"}[r.verdict]
-    word = {"APPROVE": "APPROVED", "REVIEW": "REVIEW", "BLOCK": "BLOCKED"}[r.verdict]
-    return (f'<div class="runlabel">Showing: {r.label}</div>'
-            f'<div class="verdict {cls}"><div class="word">{word}</div>'
-            f'<div class="m">fraud probability<b>{r.score:.5f}</b></div>'
-            f'<div class="m">end to end<b>{r.total_ms/1000:.1f}s</b></div>'
-            f'<div class="m">kafka offset<b>{r.kafka_offset}</b></div></div>')
+    word = {"APPROVE": "APPROVED", "REVIEW": "HELD FOR REVIEW", "BLOCK": "BLOCKED"}[r.verdict]
+    icon = {"APPROVE": "shield", "REVIEW": "user", "BLOCK": "shield"}[r.verdict]
+    where = (f"Kafka partition {r.kafka_partition} \u00b7 offset {r.kafka_offset}"
+             if r.kafka_offset is not None else "")
+    return (f'<div class="runlabel">Payment: {r.label}</div>'
+            f'<div class="verdict vbar {cls}"><div class="vw"><div class="vi">{_icon(icon)}</div>'
+            f'<div class="word">{word}</div></div>'
+            f'<div class="m">fraud probability<b>{r.score:.2f}</b></div>'
+            f'<div class="m">decided in<b>{r.total_ms/1000:.1f}s</b></div>'
+            f'<div class="m">inside Exasol<b>{r.analytics_ms/1000:.1f}s</b></div>'
+            f'<div class="vp">{where}</div></div>')
+
+
+def _driver(item) -> str:
+    """One model driver, said the way a fraud analyst would say it."""
+    c, v = item["column"], item["value"]
+    yes = str(v).upper() in ("TRUE", "1")
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        f = 0.0
+    return {
+        "AMOUNT_VS_AVG_RATIO": f"{f:,.0f}\u00d7 her normal spend",
+        "MCC_BASE_RISK": f"High-risk merchant category ({f:.2f})",
+        "AMOUNT_USD": f"${f:,.0f} in one payment",
+        "IS_NEW_COUNTRY_30D": "A country she has never paid from" if yes else "",
+        "IS_NEW_DEVICE_30D": "A device she has never used" if yes else "",
+        "IS_CROSS_BORDER": "Outside her home country" if yes else "",
+        "TXN_COUNT_1H": f"{int(f)} payments in the last hour",
+        "TXN_COUNT_24H": f"{int(f)} payments in 24 hours",
+        "IS_NIGHT_TXN": "In the middle of the night" if yes else "",
+    }.get(c, item["label"])
+
+
+def insight(r) -> str:
+    """Why the model stopped it: the exact per-feature contributions, largest first."""
+    try:
+        att = P.attribution(r.features)
+    except Exception:
+        return ""
+    pos = [i for i in att["items"] if i["contribution"] > 0 and _driver(i)]
+    total = sum(i["contribution"] for i in pos) or 1
+    rows = "".join(
+        f'<div class="dr"><div class="dr-l">{_driver(i)}</div><div class="dr-t">'
+        f'<div class="dr-f" style="width:{max(3, i["contribution"] / total * 100):.0f}%">'
+        f'</div></div><div class="dr-v">{i["contribution"] / total * 100:.0f}%</div></div>'
+        for i in pos[:4])
+    head = "Why the model stopped it" if r.verdict == "BLOCK" else "Why the model is unsure"
+    tone = "" if r.verdict == "BLOCK" else " rev"
+    return (f'<div class="card{tone}"><div class="card-k">Insight</div>'
+            f'<div class="card-t">{head}</div>{rows}'
+            f'<div class="card-x">Share of the risk score. Exact contributions of the model '
+            f'that ran \u2014 not an estimate.</div></div>')
+
+
+def next_actions(r) -> str:
+    """Recommended next steps, chosen from the drivers that actually fired."""
+    try:
+        cols = [i["column"] for i in P.attribution(r.features)["items"]
+                if i["contribution"] > 0 and _driver(i)]
+    except Exception:
+        return ""
+    merchant = (r.label.split(" \u00b7 ") + ["", ""])[1] or "the merchant"
+    n1h = int(float(r.features.get("TXN_COUNT_1H") or 0))
+    rules = {
+        "IS_NEW_DEVICE_30D": ("user", "Verify on her own phone",
+                              "Push a one-tap confirmation to her registered iPhone."),
+        "IS_NEW_COUNTRY_30D": ("shield", "Freeze the card abroad",
+                               "Block foreign and card-not-present use until she confirms."),
+        "IS_CROSS_BORDER": ("shield", "Freeze the card abroad",
+                            "Block foreign and card-not-present use until she confirms."),
+        "MCC_BASE_RISK": ("table", f"Flag {merchant}",
+                          "Watchlist the merchant and check other customers paying it."),
+        "AMOUNT_VS_AVG_RATIO": ("chat", "Call the customer on file",
+                                "Confirm the payment and that the card is still with her."),
+        "TXN_COUNT_1H": ("swap", "Lower the hourly card limit",
+                         f"{n1h} payments this hour against about two a day."),
+    }
+    picked, seen = [], set()
+    for c in cols:
+        if c in rules and rules[c][1] not in seen:
+            picked.append(rules[c]); seen.add(rules[c][1])
+        if len(picked) == 3:
+            break
+    if len(picked) < 3:
+        picked.append(("cube", "Open a fraud case",
+                       "Log it with the evidence; the outcome becomes a training label."))
+    items = "".join(
+        f'<div class="na"><div class="na-n">{k}</div><div class="na-i">{_icon(ic)}</div>'
+        f'<div><div class="na-t">{t}</div><div class="na-s">{d}</div></div></div>'
+        for k, (ic, t, d) in enumerate(picked, 1))
+    return (f'<div class="card"><div class="card-k bad">Next best action</div>'
+            f'<div class="card-t">Payment declined. Recommended next steps</div>{items}</div>')
 
 
 def kpis(f: dict) -> str:
@@ -206,7 +299,13 @@ def bar(value: float, frac: float, label: str, tone: str) -> str:
             f'<div class="fil {tone}" style="width:{frac * 100:.0f}%"></div></div></div>')
 
 
-def kafka_events(events) -> str:
+def kafka_events(events, n: int = 6) -> str:
+    # Deletes on this topic only ever come from Reset data -- housekeeping,
+    # not part of the story -- so neither they nor the payments they removed
+    # are shown.
+    gone = {(e["payload"] or {}).get("txn_id") for e in events if e["op"] == "d"}
+    events = [e for e in events
+              if e["op"] != "d" and (e["payload"] or {}).get("txn_id") not in gone][:n]
     if not events:
         return ('<div class="res"><div class="tx">No events on the topic yet. '
                 'Fire one above.</div></div>')
@@ -230,6 +329,17 @@ def kafka_events(events) -> str:
     return "".join(out)
 
 
+def outcome(decision, analyst) -> str:
+    """What the human in the loop decided, as Exasol now holds it."""
+    if analyst == "CONFIRMED FRAUD":
+        return '<div class="an an-bad">\u2717 analyst: fraud</div>'
+    if analyst == "CLEARED":
+        return '<div class="an an-ok">\u2713 analyst: cleared</div>'
+    if decision == "REVIEW":
+        return '<div class="an an-wait">awaiting analyst</div>'
+    return ""
+
+
 def sql_table(rows) -> str:
     """
     The result grid.
@@ -242,7 +352,7 @@ def sql_table(rows) -> str:
             "<th>vs 30-day<br>average</th><th>merchant<br>risk</th>"
             "<th>fraud<br>score</th><th>decision</th></tr>")
     body = []
-    for merchant, amount, n1h, ratio, mrisk, score, decision in rows:
+    for merchant, amount, n1h, ratio, mrisk, score, decision, analyst in rows:
         score, ratio, mrisk = float(score), float(ratio), float(mrisk)
         cls = {"BLOCK": "hot", "REVIEW": "warn"}.get(decision, "")
         pill = {"BLOCK": "d-block", "REVIEW": "d-review"}.get(decision, "d-approve")
@@ -257,7 +367,8 @@ def sql_table(rows) -> str:
             f'<td class="num">{bar(ratio, rfrac, f"{ratio:,.1f}x", _tone(ratio, 5, 50))}</td>'
             f'<td class="num">{bar(mrisk, mrisk, f"{mrisk:.2f}", _tone(mrisk, 0.3, 0.6))}</td>'
             f'<td class="num score">{bar(score, score, f"{score:.2f}", tone)}</td>'
-            f'<td><span class="pill-d {pill}">{decision}</span></td></tr>')
+            f'<td><span class="pill-d {pill}">{decision}</span>{outcome(decision, analyst)}'
+            f'</td></tr>')
     if not body:
         body.append('<tr><td colspan="7" class="empty">Nothing scored yet — '
                     'fire an event above.</td></tr>')
@@ -274,9 +385,60 @@ def run_with_rail(placeholder, amount, merchant, mcc, channel, country, city, de
 
     r = P.run_event(amount, merchant, mcc, channel, country, city, device,
                     on_stage=on_stage)
+    if r.verdict == "REVIEW":
+        P.open_review(r.txn_id, r.score)   # held; an analyst decides
     ss.fired += 1
     st.cache_data.clear()   # we just changed the data; let the panels re-read
     return r
+
+
+def review_panel(r, target=None) -> None:
+    """
+    The human in the loop -- only for the payment on screen, and only when the
+    model held it for review. Alerts are read from PostgreSQL, where analysts
+    work; a decision is an UPDATE there, and resolve_review follows it into
+    Exasol. It stays visible after the decision so the outcome can be shown.
+    """
+    if r is None or r.verdict != "REVIEW":
+        return
+    try:
+        q = next((x for x in P.review_queue(20) if x["txn_id"] == r.txn_id), None)
+    except Exception:
+        return
+    if q is None:
+        return
+    target = target or st.container()
+    state = {"OPEN": ("rv-wait", "Awaiting analyst"),
+             "FALSE_POSITIVE": ("rv-ok", "Cleared \u00b7 payment released"),
+             "CONFIRMED_FRAUD": ("rv-bad", "Confirmed fraud \u00b7 payment declined")
+             }.get(q["status"], ("rv-wait", q["status"]))
+    steps = "".join(f'<span class="mf">{t}</span>' + ('<span class="mfa">\u2192</span>'
+                                                       if i < 3 else "")
+                    for i, t in enumerate(("Analyst decides", "PostgreSQL",
+                                           "back through Kafka", "FRAUD_LABEL in Exasol")))
+    with target:
+        html(f'<div class="card"><div class="card-k warn">Human in the loop</div>'
+             f'<div class="card-t">The model is unsure. An analyst decides.</div>'
+             f'<div class="mflow">{steps}</div>'
+             f'<div class="rv {state[0]}"><div class="rv-m"><b>${float(q["amount"]):,.2f}</b>'
+             f' &nbsp;{q["merchant"]}</div><span class="rv-p">{state[1]}</span></div></div>')
+        if q["status"] == "OPEN":
+            c1, c2 = st.columns(2)
+            ok = c1.button("Clear payment", key=f"ok_{q['txn_id']}", use_container_width=True)
+            bad = c2.button("Confirm fraud", key=f"bad_{q['txn_id']}", type="primary",
+                            use_container_width=True)
+            if ok or bad:
+                with st.spinner("Recording the decision and following it into Exasol\u2026"):
+                    res = P.resolve_review(q["txn_id"], confirm_fraud=bool(bad))
+                ss.last_review = {**res, "txn_id": q["txn_id"]}
+                st.cache_data.clear()
+                st.rerun()
+        res = ss.get("last_review")
+        if res and res.get("txn_id") == r.txn_id:
+            label = {True: "TRUE (fraud)", False: "FALSE (not fraud)"}.get(res["label"], "not yet")
+            html(f'<div class="card-x" style="margin-top:.2rem">Reached Exasol in '
+                 f'{res["ms"] / 1000:.1f}s \u2014 FRAUD_LABEL = {label}, payment '
+                 f'{str(res["txn_status"]).lower()}.</div>')
 
 
 # ------------------------------------------------------------------ hero
@@ -343,19 +505,34 @@ with p2:
     if P.staging_via_host():
         html('<div class="colhead" style="min-height:0;margin-top:-.4rem">'
              '<span class="chip warn">Fallback staging</span><span class="chip">'
-             'Exasol can\'t reach Kafka through this laptop\'s firewall, so the host '
-             'stages the topic into KAFKA_STAGE</span></div>')
+             'Exasol cannot reach the Kafka broker from where it runs, so this app '
+             'stages the topic into KAFKA_STAGE itself</span></div>')
     # Same split as the two result columns below, so the button edges line up.
     left, right = st.columns([1, 1.25])
     with left:
-        b1, b2 = st.columns(2)
+        b1, b2, b3 = st.columns(3)
         normal = b1.button("Ordinary purchase", use_container_width=True, key="fn")
-        fraud = b2.button("Suspicious transaction", use_container_width=True,
-                          type="primary", key="ff")
+        review = b2.button("Needs review", use_container_width=True, key="fv")
+        fraud = b3.button("Anomaly transaction", use_container_width=True, key="ff")
     with right:
-        b3, _sp, b4 = st.columns([1, 1, 1])
-        refresh = b3.button("Refresh", use_container_width=True, key="fr")
-        rst = b4.button("Reset data", use_container_width=True, key="rs")
+        b4, b6, b5 = st.columns([1, 1.2, 1])
+        refresh = b4.button("Refresh", use_container_width=True, key="fr")
+        rst = b5.button("Reset data", use_container_width=True, key="rs")
+        # Any payment the audience asks about -- same pipeline as the presets.
+        with b6.popover("Try your own\u2026", use_container_width=True):
+            with st.form("custom_form", border=False):
+                amount = st.number_input("Amount (USD)", 0.5, 500000.0, 4200.0, step=50.0)
+                merchant = st.text_input("Merchant", "FX Global Wire")
+                mcc_label = st.selectbox("Merchant category",
+                                         [f"{m} \u00b7 {d} (risk {r:.2f})" for m, d, r in MCCS],
+                                         index=8)
+                f1, f2 = st.columns(2)
+                channel = f1.selectbox("Channel", ["ONLINE", "POS", "API", "MOBILE"], index=2)
+                country = f2.selectbox("Country", ["US", "MT", "RU", "NG", "GB", "DE"], index=1)
+                city = st.text_input("City", "Valletta")
+                new_device = st.checkbox("Unrecognised device", value=True)
+                custom = st.form_submit_button("Run it through the pipeline", type="primary",
+                                               use_container_width=True)
 
     holder = st.empty()
 
@@ -371,9 +548,26 @@ with p2:
     if normal:
         ss.last_run = run_with_rail(holder, 5.40, "Corner Coffee", "5812", "POS",
                                     "US", "Austin", P.HOME_DEVICE)
+    elif review:
+        pr = P.borderline_payment()
+        if pr is None:
+            # Velocity is already so high that any payment would be BLOCKED.
+            # Say so instead of firing one that contradicts the button.
+            html('<div class="colhead" style="min-height:0"><span class="chip warn">'
+                 'No borderline payment right now</span><span class="chip">Too many '
+                 'payments this hour \u2014 anything new would be blocked. Press '
+                 '<b>Reset data</b>, then try again.</span></div>', holder)
+        else:
+            ss.last_run = run_with_rail(holder, pr["amount"], pr["merchant"], pr["mcc"],
+                                        pr["channel"], pr["country"], pr["city"],
+                                        P.HOME_DEVICE)
     elif fraud:
         ss.last_run = run_with_rail(holder, 8750.00, "LuckyBet Online", "7995",
                                     "ONLINE", "MT", "Valletta", S.FRAUD_DEVICE)
+    elif custom:
+        ss.last_run = run_with_rail(holder, amount, merchant, mcc_label.split(" \u00b7 ")[0],
+                                    channel, country, city,
+                                    S.FRAUD_DEVICE if new_device else P.HOME_DEVICE)
     elif ss.last_run is not None:
         html(rail({hp.name: {"state": "done", "ms": hp.ms} for hp in ss.last_run.hops}),
              holder)
@@ -381,6 +575,15 @@ with p2:
     if ss.last_run is not None and ss.last_run.score is not None:
         html(verdict(ss.last_run))
         html(kpis(ss.last_run.features))
+        if ss.last_run.verdict == "BLOCK":
+            ci, cn = st.columns(2)
+            html(insight(ss.last_run), ci)
+            html(next_actions(ss.last_run), cn)
+        elif ss.last_run.verdict == "REVIEW":
+            ci, cr = st.columns(2)
+            html(insight(ss.last_run), ci)
+            review_panel(ss.last_run, cr)
+
 
     st.write("")
     col_k, col_s = st.columns([1, 1.25])
@@ -388,7 +591,7 @@ with p2:
         html(col_head("stream", "Kafka sees",
                       [("", "amount"), ("", "merchant"), ("", "country"),
                        ("no", "history")]))
-        html(kafka_events(cached_tail(6)))
+        html(kafka_events(cached_tail(24)))
     with col_s:
         html(col_head("cube", "Exasol knows",
                       [("add", "velocity"), ("add", "vs 30-day avg"),
@@ -402,31 +605,6 @@ with p2:
             st.caption("Scores of exactly 1.00000 / 0.00000 are real: the logistic model "
                        "saturates on extreme features, and FRAUD_SCORE is DECIMAL(6,5).")
 
-    with st.expander("Build your own transaction", expanded=True):
-        with st.form("custom_form"):
-            a, b, c = st.columns(3)
-            with a:
-                amount = st.number_input("Amount (USD)", 0.5, 500000.0, 4200.0, step=50.0)
-                mcc_label = st.selectbox("Merchant category",
-                                         [f"{m} · {d} (risk {r:.2f})" for m, d, r in MCCS],
-                                         index=8)
-            with b:
-                merchant = st.text_input("Merchant", "FX Global Wire")
-                channel = st.selectbox("Channel", ["ONLINE", "POS", "API", "MOBILE"], index=2)
-            with c:
-                country = st.selectbox("Country", ["US", "MT", "RU", "NG", "GB", "DE"], index=1)
-                city = st.text_input("City", "Valletta")
-            new_device = st.checkbox("Unrecognised device", value=True)
-            go = st.form_submit_button("Run it through the pipeline",
-                                       use_container_width=True)
-        if go:
-            ph = st.empty()
-            ss.last_run = run_with_rail(
-                ph, amount, merchant, mcc_label.split(" · ")[0], channel, country, city,
-                S.FRAUD_DEVICE if new_device else P.HOME_DEVICE)
-            if ss.last_run.score is not None:
-                html(verdict(ss.last_run))
-                html(kpis(ss.last_run.features))
 
 
 # ------------------------------------------------------------------ page 3
@@ -538,9 +716,8 @@ def answer_html(steps):
     nrows = len(proof["rows"]) if proof and "rows" in proof else 0
 
     html_out = (
-        f'<div class="verdict {tone}">'
-        f'<div class="word" style="font-size:1.9rem">'
-        f'{d.get("verdict","").replace("_"," ")}</div>'
+        f'<div class="verdict vbar {tone}"><div class="vw"><div class="vi">{_icon("shield")}</div>'
+        f'<div class="word">{d.get("verdict","").replace("_"," ")}</div></div>'
         f'<div class="m">confidence<b>{d.get("confidence","")}</b></div>'
         f'<div class="m">statements run<b>{len(queries)}</b></div></div>'
         f'<div class="ans-head">{d.get("headline","")}</div>'
