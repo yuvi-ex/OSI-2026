@@ -12,9 +12,9 @@ ordinary card history.
 
 > **Quick start.** Needs the
 > [banking fraud pipeline](https://github.com/SanjayG-Data/real-time-banking-fraud-pipeline)
-> running (Docker Compose + Exasol) and Python 3.11+. Then
-> `kafka-to-sql-demo/start_demo.sh` and open **http://localhost:8502**.
-> Full steps under [Run it](#run-it).
+> running (Docker Compose + Exasol) and Python 3.11+. After the one-time
+> [first-run steps](#first-run-once), start it with `kafka-to-sql-demo/start_demo.sh`
+> and open **http://localhost:8502**. Full steps under [Run it](#run-it).
 
 ---
 
@@ -73,7 +73,7 @@ payment did — Debezium → Kafka → Exasol — where the analytics refresh tu
 `FRAUD_LABEL`, the column the model is retrained on. The card shows the round trip
 (about a second) once the decision lands.
 
-One state, three layers — the same thing named where it lives:
+One state, named at each layer:
 
 | Layer | Blocked | In review | Approved |
 |---|---|---|---|
@@ -152,10 +152,13 @@ The Live tab shows two numbers, and they measure different things:
 | On screen | Measures | Typical |
 |---|---|---|
 | **Decided in** | the whole path: PostgreSQL write → Kafka → Exasol → score | ~1.3 s with fallback staging; ~3.3 s with Exasol's own connector |
+| **Debezium + Kafka** (a hop card) | the import hop: waiting for Debezium to publish, then staging | ~0.7 s with fallback staging; ~2.7 s with the connector |
 | **Inside Exasol** | the merge, features and scoring steps only | ~0.5 s either way |
 
-The difference between the two paths is the connector's JVM start-up inside the UDF
-sandbox, not the analytics. It is paid once per `IMPORT` statement — per batch, not
+The two paths differ by about 2 s, all of it in the import hop and none of it in the
+analytics. With the connector, most of that hop is its JVM start-up inside the UDF
+sandbox (~2.6 s), which overlaps the ~0.7 s Debezium takes to publish — hence ~2 s
+extra, not 2.6 s. The start-up is paid once per `IMPORT` statement — per batch, not
 per payment: one import carries up to `MAX_RECORDS_PER_RUN` (5,000) messages, so a
 steady stream spreads those ~2.6 s across thousands of events. The demo shows the
 worst case, because every click runs its own import for a single payment. The
@@ -274,19 +277,31 @@ There are two Kafka addresses, and they are configured in different places:
   `BOOTSTRAP_SERVERS = '192.168.64.1:39092'`,
   `SCHEMA_REGISTRY_URL = 'http://192.168.64.1:8081'`:
 
+  Bind the ports to the loopback and bridge addresses only — never all interfaces,
+  or anyone on the same network can reach the broker once the host firewall allows
+  Docker:
+
   ```yaml
   # docker-compose.override.yml in the parent repo
   services:
     kafka:
-      ports:
-        - "29092:29092"   # host clients (this app)
-        - "39092:39092"   # the Exasol VM, via the bridge
+      ports: !override
+        - "127.0.0.1:29092:29092"      # host clients (this app)
+        - "192.168.64.1:39092:39092"   # the Exasol VM, via the bridge
       environment:
         KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,PLAINTEXT_VM:PLAINTEXT
         KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,PLAINTEXT_VM://0.0.0.0:39092
         KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092,PLAINTEXT_VM://192.168.64.1:39092
         KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+    schema-registry:
+      ports: !override
+        - "127.0.0.1:8081:8081"        # host clients (this app)
+        - "192.168.64.1:8081:8081"     # the Exasol VM, via the bridge
   ```
+
+  **Start Exasol before `docker compose up`.** The bridge interface (and its
+  `192.168.64.1` address) exists only while the Exasol VM is running; if Compose
+  starts first, Docker cannot bind that address and the containers fail to start.
 
 ### Settings
 
@@ -321,7 +336,10 @@ incoming connections, so traffic from the Exasol VM is dropped.
 - A port check is **not** enough: the TCP handshake can succeed while the data is
   dropped, so `nc -vz 192.168.64.1 39092` may report "open". Test at the application
   level instead: `curl -s -o /dev/null -w "%{http_code}\n" http://192.168.64.1:8081/subjects`
-  should print `200`; a timeout means the path is blocked.
+  should print `200`; a timeout means the path is blocked. (Checked on a blocked Mac:
+  from the Mac itself this times out, while `localhost:8081` answers — the firewall
+  filters the Mac's own traffic to the bridge address too, so the test is valid. The
+  definitive test is a Kafka import inside Exasol completing without E-KCE-24.)
 - Check the firewall: `/usr/libexec/ApplicationFirewall/socketfilterfw --listapps`.
   If `/Applications/Docker.app` shows "Block incoming connections", it needs to be
   allowed — an admin can run
