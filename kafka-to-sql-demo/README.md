@@ -157,6 +157,38 @@ nothing skipped or duplicated.
 
 ---
 
+## Tested on
+
+The free **Exasol Personal** edition, on a laptop. It shows where the work happens,
+not how far it scales.
+
+**Exasol**
+
+| | |
+|---|---|
+| Edition | Exasol Personal, local deployment (`exasol install local`) |
+| Exasol Personal CLI | 2.3.0 |
+| Database | Exasol 2026.2.0 (`2026.2.0-nano.3`) |
+| Cluster | 1 node |
+| VM | 2 vCPUs · 24 GB RAM (`memory-mb = 24576`) · 100 GB data disk |
+| UDF languages | Python 3.12 and Java 17 (script-language containers 11.2.0) |
+| Connection | `127.0.0.1:8563`, TLS with a self-signed certificate |
+
+**Installed by this demo**
+
+| Component | Detail |
+|---|---|
+| Kafka connector | `exasol-kafka-connector-extension-2.0.0.jar` in BucketFS — Java UDFs `KAFKA_CONSUMER`, `KAFKA_IMPORT`, `KAFKA_METADATA` |
+| Connector tuning | `POLL_TIMEOUT_MS=400`, `MIN_RECORDS_PER_RUN=1`, `MAX_RECORDS_PER_RUN=5000`, `CONSUME_ALL_OFFSETS=true`; Avro via Schema Registry |
+| Model | `fraud_model.pkl` in BucketFS, scikit-learn 1.7.2 `LogisticRegression` + `StandardScaler` |
+| Data flow | `KAFKA_STAGE` → `RAW` → `CLEANSED` → `ANALYTICS`, plus `FRAUD_DEMO` (row-filtered views for the agent) |
+
+**Host:** Apple M5 Pro (18 cores, 48 GB RAM), macOS 26.6 on arm64. The demo's data
+is well under 1 GB; the 24 GB VM covers Exasol's own recommended database RAM for
+everything on the instance with room to spare.
+
+---
+
 ## On stage
 
 1. `kafka-to-sql-demo/start_demo.sh`
