@@ -373,7 +373,7 @@ def sync_history(passes: int = 2):
     try:
         for _ in range(passes):
             for stmt in entity_import_statements():
-                ex.execute(stmt)
+                stage_import(ex, stmt, **host_args(stmt))
         for stmt in entity_merge_statements():
             ex.execute(stmt)
         for stmt in refresh_statements():
@@ -572,6 +572,18 @@ def host_stage(ex, max_wait: float = 2.0, topic: str | None = None,
     for i in range(0, len(rows), 200):
         ex.execute(f"INSERT INTO {table} VALUES " + ", ".join(rows[i:i + 200]))
     return len(rows)
+
+
+def host_args(stmt: str) -> dict:
+    """
+    Fallback settings for any connector IMPORT, read from the statement itself:
+    the topic, the stage table, and the value fields in RECORD_FIELDS order
+    (the stage table's columns, before the timestamp/partition/offset trio).
+    """
+    get = lambda k: re.search(rf"{k}\s*=\s*'([^']+)'", stmt).group(1)
+    fields = [f.split(".", 1)[1] for f in get("RECORD_FIELDS").split(",")
+              if f.startswith("value.")]
+    return {"topic": get("TOPIC_NAME"), "table": get("TABLE_NAME"), "fields": fields}
 
 
 def stage_import(ex, stmt: str | None = None, **host) -> None:

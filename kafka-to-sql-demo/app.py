@@ -446,11 +446,13 @@ if ss.health is None:
     ss.health = cached_health()
 h = ss.health
 tstats = cached_topic_stats()
-last_ms = f"{ss.last_run.total_ms/1000:.1f}s" if ss.last_run else "3.3s"
-ana_ms = (f"{ss.last_run.analytics_ms:.0f} ms of that is the analytics \u2014 merge, "
-          f"features and scoring. The rest is one-off connector startup."
+# Measured, never quoted: until a payment has run in this session there is
+# nothing honest to show, so say where the number will come from.
+last_ms = f"{ss.last_run.total_ms/1000:.1f}s" if ss.last_run else "Not yet measured"
+ana_ms = (f"{ss.last_run.analytics_ms:.0f} ms of that inside Exasol \u2014 merge, "
+          f"features and scoring. The rest is getting the event there."
           if ss.last_run else
-          "About 0.6s of that is the analytics. The rest is one-off connector startup.")
+          "Fire a payment on the Live tab; its measured time appears here.")
 
 html(f'<div class="pagehead">{_logo()}'
      f'<span class="ph-t">Kafka to SQL \u00b7 live demo</span></div>')

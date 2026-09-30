@@ -1217,7 +1217,7 @@ def problem_workflow(amount="$8,750", merchant="LuckyBet Online", country="MT",
              f'stroke="{bad}" stroke-opacity="0.25"/>'
              f'<text x="64" y="{SY+30}" font-family="{FIG}" font-size="12.5" font-weight="800" '
              f'letter-spacing="1.4" fill="{bad}">WHAT THE GAP COSTS</text>')
-    stats = [(f"{amount} → ~$43,750", "this one payment, at the true cost of fraud",
+    stats = [(f"{amount} → $43,750+", "this one payment, at the true cost of fraud",
               "every $1 lost costs a bank $5+ · LexisNexis, 2025"),
              ("$33.4 billion", "lost to card fraud worldwide in 2024",
               "Nilson Report, 2026"),
