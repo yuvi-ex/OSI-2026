@@ -16,14 +16,14 @@ Coming soon.
 | Build | What it's for | Platform |
 |---|---|---|
 | [`clinical-trials-demo/`](clinical-trials-demo/) | Clinical trial intelligence. Ask a question in English, an agent writes and runs SQL on Exasol over MCP, and it answers citing trial IDs. The demo shows why a semantic layer is where "which trials count" decisions belong. | Exasol Personal (macOS / Linux) with the PYTHON3 SLC, Docker, and Python 3 + Streamlit (`app/run.sh`). An `ANTHROPIC_API_KEY` is optional, for the agent. |
-| [`kafka-to-sql-demo/`](kafka-to-sql-demo/) | "Streaming in. Querying out.", the Kafka-to-SQL stage demo. It tells the story of a card payment in seven acts: PostgreSQL → Debezium CDC → Kafka → Exasol, where it's enriched against 30 days of the customer's history and scored by an ML model inside the database. Then an AI agent answers questions as a specific analyst, seeing only what that analyst may see. Every number is read live. | Python 3 + Streamlit (port 8502) on a running Postgres + Kafka + Exasol stack under Docker Compose. It's an add-on folder: it expects to sit inside the banking fraud pipeline project and reads that project's `.env` and `demo_dashboard.py`. |
+| [`kafka-to-sql-demo/`](kafka-to-sql-demo/) | "Streaming in. Querying out.", the Kafka-to-SQL demo. A card payment goes PostgreSQL → Debezium CDC → Kafka → Exasol, where it's enriched against 30 days of the customer's history and scored by an ML model inside the database: approved, held for review, or blocked. Blocked payments come with an insight (why the model stopped it) and a next best action; held ones go to a human in the loop, whose decision flows back through Kafka as a training label. Then an AI agent answers questions as a specific analyst, seeing only what that analyst may see. Every number is read live. | Python 3 + Streamlit (port 8502) on a running Postgres + Kafka + Exasol stack under Docker Compose. It's an add-on folder: it expects to sit inside the banking fraud pipeline project and reads that project's `.env` and `demo_dashboard.py`. |
 
-Each folder has its own README with full setup steps. `kafka-to-sql-demo/DEMO_BRIEF.md` is the speaker's reference.
+Each folder has its own README with full setup steps.
 
 ### Notes
 
 - **clinical-trials-demo:** the large generated files (vectors, the model, the lakehouse engine) are not included. The numbered scripts rebuild them. Copy `.env.example` to `.env` for the API key.
-- **kafka-to-sql-demo:** its README's commands say `story_demo/`, the folder's name at the booth. Use whatever you name the folder; the code finds its own files by relative path.
+- **kafka-to-sql-demo:** install its extra packages with `pip install -r kafka-to-sql-demo/requirements.txt`. The folder can have any name; the code finds its own files by relative path.
 
 ## Screenshots
 
@@ -45,8 +45,11 @@ Captured from the running booth apps, one per tab. The files are in each folder'
 **1 · The challenge**
 ![Kafka to SQL: the challenge](kafka-to-sql-demo/screenshots/1-the-challenge.png)
 
-**2 · Live: Kafka to SQL**
+**2 · Live: Kafka to SQL** (a blocked payment, with insight and next best action)
 ![Kafka to SQL: live](kafka-to-sql-demo/screenshots/2-live-kafka-to-sql.png)
+
+**2 · Human in the loop** (a payment held for review)
+![Kafka to SQL: human in the loop](kafka-to-sql-demo/screenshots/2b-human-review.png)
 
 **3 · How it works**
 ![Kafka to SQL: how it works](kafka-to-sql-demo/screenshots/3-how-it-works.png)
