@@ -260,21 +260,26 @@ The demo's data is well under 1 GB.
 
 ---
 
-## Three things that had to be fixed first
+## Lessons from building it
 
-**1. The import took 62 seconds.** The connector defaults to `POLL_TIMEOUT_MS=30000`
-and `MIN_RECORDS_PER_RUN=100`, so importing one transaction sits in an empty poll
-waiting for 99 more. `POLL_TIMEOUT_MS='400'` and `MIN_RECORDS_PER_RUN='1'` took the
-pipeline from **62.96 s to 3.32 s** (`TUNED_IMPORT` in `pipeline.py`).
+Three things surfaced while building the demo. Each is solved in this folder's code;
+they are worth knowing if you build something similar.
 
-**2. The scores were nonsense.** Every seeded transaction had been created within
-the same half hour, so the velocity window counted the whole dataset and the 30-day
-average had nothing to average. `seed_story_persona.py` spreads 49 ordinary payments
+**1. Connector defaults cost a minute per event — tuning two settings fixes it.** The
+Kafka connector defaults to `POLL_TIMEOUT_MS=30000` and `MIN_RECORDS_PER_RUN=100`, so
+importing one transaction waits in an empty poll for 99 more. With
+`POLL_TIMEOUT_MS='400'` and `MIN_RECORDS_PER_RUN='1'`, the pipeline went from
+**62.96 s to 3.32 s** end to end (`TUNED_IMPORT` in `pipeline.py`).
+
+**2. Velocity features need history spread over real time.** Seed data created within
+the same half hour makes every payment look like a burst, and leaves the 30-day
+average nothing to average. `seed_story_persona.py` spreads 49 ordinary payments
 across 30 real days: a $29.55 baseline and a genuinely empty velocity window.
 
-**3. Deletes never propagated past RAW.** The analytics refresh only MERGEs, so
-deleted transactions stayed in the velocity windows forever and every rehearsal
-scored higher than the last. `reset_story()` prunes them (`PRUNE_ORPHANS`).
+**3. Deletes must reach the feature tables too.** The analytics refresh only MERGEs,
+so a transaction deleted upstream would stay inside the velocity windows and every
+rehearsal would score higher than the last. `reset_story()` removes those rows from
+the downstream tables (`PRUNE_ORPHANS`) and waits until the deletes have arrived.
 
 ---
 
