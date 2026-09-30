@@ -4,8 +4,8 @@ The demos and the booth video from Exasol's booth at **Open Source India, 7–8 
 
 ## Video
 
-**[Exasol-Complete-Story-v12.mp4](https://github.com/yuvi-ex/opensourceeventassets/releases/download/v1.0-event/Exasol-Complete-Story-v12.mp4)** is the booth video (161 MB).
-It's attached to the [`v1.0-event` release](https://github.com/yuvi-ex/opensourceeventassets/releases/tag/v1.0-event) because it's too large for git.
+**[Exasol-Complete-Story-v12.mp4](https://github.com/yuvi-ex/OSI-2026/releases/download/v1.0-event/Exasol-Complete-Story-v12.mp4)** is the booth video (161 MB).
+It's attached to the [`v1.0-event` release](https://github.com/yuvi-ex/OSI-2026/releases/tag/v1.0-event) because it's too large for git.
 
 ## Slides
 

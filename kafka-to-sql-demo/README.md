@@ -170,8 +170,8 @@ the labels the human-in-the-loop step writes — probably with a stronger model;
 
 ```bash
 # inside your checkout of real-time-banking-fraud-pipeline
-git clone https://github.com/yuvi-ex/opensourceeventassets.git /tmp/oseassets
-cp -r /tmp/oseassets/kafka-to-sql-demo .
+git clone https://github.com/yuvi-ex/OSI-2026.git /tmp/OSI-2026
+cp -r /tmp/OSI-2026/kafka-to-sql-demo .
 
 ./.venv/bin/pip install -r requirements.txt -r kafka-to-sql-demo/requirements.txt
 ```
