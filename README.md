@@ -1,19 +1,10 @@
-# Open Source India 2026: Exasol booth assets
+# OSI 2026: Exasol demos
 
-The demos and the booth video from Exasol's booth at **Open Source India, 7–8 October 2026**.
+Two Exasol demos, shown at **Open Source India 2026**.
 
-## Video
+## The demos
 
-**[Exasol-Complete-Story-v12.mp4](https://github.com/yuvi-ex/OSI-2026/releases/download/v1.0-event/Exasol-Complete-Story-v12.mp4)** is the booth video (161 MB).
-It's attached to the [`v1.0-event` release](https://github.com/yuvi-ex/OSI-2026/releases/tag/v1.0-event) because it's too large for git.
-
-## Slides
-
-Coming soon.
-
-## The builds
-
-| Build | What it's for | Platform |
+| Demo | What it's for | Platform |
 |---|---|---|
 | [`clinical-trials-demo/`](clinical-trials-demo/) | Clinical trial intelligence. Ask a question in English, an agent writes and runs SQL on Exasol over MCP, and it answers citing trial IDs. The demo shows why a semantic layer is where "which trials count" decisions belong. | Exasol Personal (macOS / Linux) with the PYTHON3 SLC, Docker, and Python 3 + Streamlit (`app/run.sh`). An `ANTHROPIC_API_KEY` is optional, for the agent. |
 | [`kafka-to-sql-demo/`](kafka-to-sql-demo/) | "Streaming in. Querying out.", the Kafka-to-SQL demo. A card payment goes PostgreSQL → Debezium CDC → Kafka → Exasol, where it's enriched against 30 days of the customer's history and scored by an ML model inside the database: approved, held for review, or blocked. Blocked payments come with an insight (why the model stopped it) and a next best action; held ones go to a human in the loop, whose decision flows back through Kafka as a training label. Then an AI agent answers questions as a specific analyst, seeing only what that analyst may see. Every number is read live. | Python 3 + Streamlit (port 8502) on a running Postgres + Kafka + Exasol stack under Docker Compose. It's an add-on folder: it expects to sit inside the banking fraud pipeline project and reads that project's `.env` and `demo_dashboard.py`. |
@@ -27,7 +18,7 @@ Each folder has its own README with full setup steps.
 
 ## Screenshots
 
-Captured from the running booth apps, one per tab. The files are in each folder's `screenshots/` directory.
+Captured from the running apps, one per tab. The files are in each folder's `screenshots/` directory.
 
 ### Clinical trial intelligence
 
