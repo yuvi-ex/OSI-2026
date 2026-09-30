@@ -56,6 +56,63 @@ produced it, and the audit trail is read back as that analyst.
 
 ---
 
+## How it's built
+
+Five steps for one payment. The last three run inside one database, in about 0.6 s.
+
+| # | Step | Where | What happens |
+|---|---|---|---|
+| 1 | Payment written | PostgreSQL | a row is inserted into `transactions` |
+| 2 | Change captured | Debezium → Kafka | Debezium reads the Postgres change log and publishes the row as Avro on `banking_avro.public.transactions` |
+| 3 | Landed | Exasol | the Kafka connector (a Java UDF in BucketFS) runs `IMPORT … FROM SCRIPT` into `KAFKA_STAGE`, then a `MERGE` into `RAW.TRANSACTIONS` — or the host fallback stages it, see below |
+| 4 | Features built | Exasol SQL | `07_refresh_analytics_features.sql` compares the payment with that account's 30 days of history using window functions and joins |
+| 5 | Scored | Exasol Python UDF | `ANALYTICS.FRAUD_SCORE_UDF` loads the model from BucketFS and returns a fraud probability; a `CASE` turns it into APPROVE (< 0.30), REVIEW or BLOCK (≥ 0.70) |
+
+The training script (`train_pipeline.py`) and the UDF (`02_features_and_udfs.sql`)
+live in the parent
+[real-time-banking-fraud-pipeline](https://github.com/SanjayG-Data/real-time-banking-fraud-pipeline)
+repo.
+
+## The model
+
+**A logistic regression** — scikit-learn `LogisticRegression(class_weight="balanced")`
+behind a `StandardScaler`, pickled to BucketFS as `fraud_model.pkl` (`LOGREG_DEMO_v1`).
+
+**Twelve inputs, all computed in SQL** from the payment and its history:
+
+| Group | Features |
+|---|---|
+| Size | amount; amount vs her 30-day average |
+| Velocity | payments in the last hour and 24 hours; their totals |
+| Novelty | new country in 30 days; new device in 30 days; cross-border |
+| Timing | night-time; weekend |
+| Merchant | base risk weight of the merchant category (casino 0.75, café 0.05, …) |
+
+**Why logistic regression**
+
+1. **It explains itself.** One weight per feature; the score is the sum of
+   weight × value through a sigmoid. A blocked payment can be justified to a
+   regulator or a customer. Its strongest weight is merchant category, ahead of
+   both velocity counts.
+2. **It is fast and small.** Scoring is a handful of multiplications, so it runs
+   inside a SQL UDF in milliseconds, with no separate model server.
+3. **It keeps the focus on the architecture.** The point is that event, history
+   and model live in one database; a simple model keeps attention there.
+4. **It is swappable.** The UDF loads any pickled scikit-learn-style model, so a
+   gradient-boosted model (XGBoost, LightGBM) drops in without touching the
+   pipeline or the SQL.
+
+**How it was trained — and what not to claim.** The shipped model is trained on
+5,000 synthetic rows at a 4% fraud rate, where the fraudulent rows were generated
+larger, faster and more often cross-border. The training report shows AUC 1.0;
+that only says the model separates data generated to be separable, so it is not
+an accuracy figure. In production it would be retrained on real labelled fraud
+(chargebacks, confirmed cases), probably with a stronger model;
+`train_pipeline.py --source exasol` already trains from labels in
+`ANALYTICS.FRAUD_FEATURES` once enough exist.
+
+---
+
 ## Run it
 
 This folder runs inside a checkout of
